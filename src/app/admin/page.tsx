@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange, SelectionMode } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
 import { X, Save, ShieldAlert, ShieldX, AlertTriangle, Loader2 } from 'lucide-react';
@@ -88,11 +88,11 @@ export default function AdminAtlasEditor() {
         console.log('[ADMIN AUTH] Querying user_roles table for role...');
         console.log(`  → SELECT role FROM user_roles WHERE id = '${user.id}'`);
 
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileData, error: profileError } = await (supabase
           .from('user_roles')
           .select('role')
           .eq('id', user.id)
-          .single();
+          .single() as any);
 
         // Log the raw response
         console.log('[ADMIN AUTH] Profile query result:');
@@ -403,6 +403,12 @@ export default function AdminAtlasEditor() {
         edgeTypes={edgeTypes}
         fitView
         className="z-0"
+        selectionMode={SelectionMode.Partial}
+        selectionOnDrag={true}
+        panOnDrag={[1]}
+        selectionKeyCode={null}
+        panOnScroll={false}
+        onSelectionChange={(params) => console.log('Nodes selected:', params.nodes)}
       >
         <Background gap={16} size={1} />
         <Controls />

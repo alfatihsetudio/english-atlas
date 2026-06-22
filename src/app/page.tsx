@@ -378,7 +378,7 @@ export default function HomeAtlas() {
     <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden bg-slate-50 font-sans">
       {/* Floating Header */}
       <div className="fixed top-4 left-4 md:top-6 md:left-6 z-40 flex items-center gap-3 bg-white/90 backdrop-blur-sm px-4 py-2.5 md:px-6 md:py-3 rounded-full shadow-lg border border-slate-200 transition-all hover:bg-white">
-        <div className="font-bold text-xl text-indigo-600 mr-4">English Atlas</div>
+        <div className="font-bold text-base md:text-xl text-indigo-600 mr-4">english atlas by fth demo mode</div>
         
         {user ? (
           <div className="flex items-center gap-4 text-sm text-slate-700">
@@ -411,8 +411,8 @@ export default function HomeAtlas() {
         )}
       </div>
 
-      {/* Search & Translation Container — fixed bottom on mobile, fixed top-center on desktop */}
-      <div className="fixed z-50 bottom-14 md:bottom-auto md:top-6 left-1/2 -translate-x-1/2 w-[90vw] md:w-[420px] flex flex-col gap-3">
+      {/* Search & Translation Container — fixed top on both mobile & desktop */}
+      <div className="fixed z-50 top-16 md:top-6 left-1/2 -translate-x-1/2 w-[92vw] md:w-[420px] flex flex-col gap-3">
         {/* Grammar Analysis Form */}
         <form onSubmit={handleAnalyze} className="relative flex items-center shadow-2xl rounded-2xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
           <input
@@ -523,6 +523,8 @@ export default function HomeAtlas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        minZoom={Number.MIN_VALUE}
+        maxZoom={Number.MAX_VALUE}
         className="z-0"
       >
         <Background gap={16} size={1} />

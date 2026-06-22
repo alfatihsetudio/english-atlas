@@ -376,71 +376,75 @@ export default function HomeAtlas() {
 
   return (
     <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden bg-slate-50 font-sans">
-      {/* Floating Header */}
-      <div className="fixed top-4 left-4 md:top-6 md:left-6 z-40 flex items-center gap-3 bg-white/90 backdrop-blur-sm px-4 py-2.5 md:px-6 md:py-3 rounded-full shadow-lg border border-slate-200 transition-all hover:bg-white">
-        <div className="font-bold text-base md:text-xl text-indigo-600 mr-4">english atlas by fth demo mode</div>
+      {/* Unified Top Layout: Header + Search/Translate Stack */}
+      <div className="fixed z-40 top-2 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-auto md:right-auto max-w-[500px] mx-auto md:max-w-3xl flex flex-col md:flex-row gap-2 pointer-events-none md:top-6">
         
-        {user ? (
-          <div className="flex items-center gap-4 text-sm text-slate-700">
-            <span className="hidden md:inline-block">Halo, <span className="font-semibold text-slate-900">{user.email}</span></span>
-            {isAdmin && (
-              <button
-                onClick={() => router.push('/admin')}
-                className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-full font-medium transition-colors border border-indigo-200"
-              >
-                <LayoutDashboard size={16} />
-                <span className="hidden sm:inline">Admin</span>
-              </button>
-            )}
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 text-slate-500 hover:text-red-600 transition-colors ml-2"
-              title="Logout"
-            >
-              <LogOut size={18} />
-            </button>
+        {/* Floating Header */}
+        <div className="flex items-center justify-between bg-white/95 backdrop-blur-md px-3 py-2 md:px-6 md:py-3 rounded-xl md:rounded-full shadow-md border border-slate-200 pointer-events-auto shrink-0 self-start w-full md:w-auto">
+          <div className="font-bold text-xs md:text-xl text-indigo-600 mr-2 truncate">
+            english atlas by fth demo mode
           </div>
-        ) : (
-          <button
-            onClick={() => router.push('/login')}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full font-medium transition-colors shadow-md"
-          >
-            <LogIn size={18} />
-            Login
-          </button>
-        )}
-      </div>
+          
+          {user ? (
+            <div className="flex items-center gap-3 text-sm text-slate-700">
+              {isAdmin && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-2 py-1 md:px-3 md:py-1.5 rounded-full font-medium transition-colors border border-indigo-200"
+                >
+                  <LayoutDashboard size={14} />
+                  <span className="hidden sm:inline">Admin</span>
+                </button>
+              )}
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 text-slate-500 hover:text-red-600 transition-colors"
+                title="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => router.push('/login')}
+              className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 md:px-4 md:py-2 rounded-lg md:rounded-full font-medium transition-colors shadow-sm text-[10px] md:text-sm"
+            >
+              <LogIn size={14} />
+              Login
+            </button>
+          )}
+        </div>
 
-      {/* Search & Translation Container — fixed top on both mobile & desktop */}
-      <div className="fixed z-50 top-16 md:top-6 left-1/2 -translate-x-1/2 w-[92vw] md:w-[420px] flex flex-col gap-3">
-        {/* Grammar Analysis Form */}
-        <form onSubmit={handleAnalyze} className="relative flex items-center shadow-2xl rounded-2xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
-          <input
-            type="text"
-            value={analyzeQuery}
-            onChange={(e) => setAnalyzeQuery(e.target.value)}
-            placeholder="Ketik kalimat bahasa Inggris..."
-            className="flex-grow bg-transparent border-none outline-none px-4 py-3.5 md:px-5 md:py-3 text-slate-800 placeholder-slate-400 text-base"
-          />
-          <button
-            type="submit"
-            disabled={isLoadingAi}
-            className={`flex items-center justify-center gap-2 px-5 py-3.5 md:px-6 md:py-3 min-w-[90px] md:min-w-[120px] rounded-xl md:rounded-full text-white font-semibold transition-all text-sm md:text-base ${
-              isLoadingAi ? 'bg-slate-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
-            }`}
-          >
-            {isLoadingAi ? <span className="animate-pulse">Loading...</span> : 'Analisis'}
-          </button>
-        </form>
+        {/* Search & Translation Container */}
+        <div className="flex flex-col gap-2 w-full md:w-[420px] pointer-events-auto">
+          {/* Grammar Analysis Form */}
+          <form onSubmit={handleAnalyze} className="relative flex items-center shadow-md rounded-xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
+            <input
+              type="text"
+              value={analyzeQuery}
+              onChange={(e) => setAnalyzeQuery(e.target.value)}
+              placeholder="Ketik kalimat Inggris..."
+              className="flex-grow bg-transparent border-none outline-none px-3 py-1.5 md:px-5 md:py-2.5 text-slate-800 placeholder-slate-400 text-xs md:text-base w-full min-w-0"
+            />
+            <button
+              type="submit"
+              disabled={isLoadingAi}
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 md:px-6 md:py-2.5 min-w-[70px] md:min-w-[120px] rounded-lg md:rounded-full text-white font-semibold transition-all text-[11px] md:text-base shrink-0 ${
+                isLoadingAi ? 'bg-slate-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 shadow-sm hover:shadow-md'
+              }`}
+            >
+              {isLoadingAi ? <span className="animate-pulse">...</span> : 'Analisis'}
+            </button>
+          </form>
 
-        {/* Global Translation Helper Form — hidden on mobile (available inside node panel) */}
-        <div className="hidden md:flex bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-indigo-50 p-4 flex-col gap-3">
+          {/* Global Translation Helper Form — Always visible, compact on mobile */}
+          <div className="flex bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-indigo-50 p-2.5 flex-col gap-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <div className="p-1 bg-indigo-100 text-indigo-600 rounded">
-                <Languages size={14} />
+                <Languages size={12} />
               </div>
-              <span className="text-xs font-bold text-slate-700">Asisten Penerjemah Global</span>
+              <span className="text-[10px] md:text-xs font-bold text-slate-700">Penerjemah Global</span>
             </div>
             {(globalTranslateText || globalTranslationResult || globalTranslateError) && (
               <button
@@ -470,13 +474,13 @@ export default function HomeAtlas() {
                   }
                 }
               }}
-              placeholder="Terjemah Indonesia → Inggris..."
-              className="flex-grow bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all"
+              placeholder="Indo → Inggris..."
+              className="flex-grow bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs md:text-base text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all w-full min-w-0"
             />
             <button
               type="submit"
               disabled={isGlobalTranslating || !globalTranslateText.trim()}
-              className="flex items-center justify-center px-4 py-2 rounded-xl text-white font-semibold text-xs transition-all shadow bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 min-w-[50px]"
+              className="flex items-center justify-center px-4 py-1.5 rounded-lg text-white font-semibold text-[11px] transition-all shadow-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 shrink-0"
             >
               {isGlobalTranslating ? <Loader2 size={12} className="animate-spin" /> : 'Go'}
             </button>
@@ -491,25 +495,26 @@ export default function HomeAtlas() {
           {globalTranslationResult && (
             <div className="space-y-2 bg-indigo-50/40 p-3 rounded-xl border border-indigo-100 max-h-[160px] overflow-y-auto">
               <div>
-                <h4 className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider mb-0.5">
+                <h4 className="text-[9px] font-bold text-indigo-800 uppercase tracking-wider mb-0.5">
                   Terjemahan:
                 </h4>
-                <p className="text-xs font-medium text-slate-800 bg-white px-2 py-1.5 rounded-lg border border-indigo-100/50 shadow-sm leading-relaxed">
+                <p className="text-[11px] md:text-sm font-medium text-slate-800 bg-white px-2 py-1.5 rounded border border-indigo-100/50 shadow-sm leading-relaxed">
                   {globalTranslationResult.translation}
                 </p>
               </div>
               {globalTranslationResult.grammar_feedback && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider mb-0.5">
+                  <h4 className="text-[9px] font-bold text-indigo-800 uppercase tracking-wider mb-0.5">
                     Catatan:
                   </h4>
-                  <p className="text-[11px] text-slate-600 bg-white/70 px-2 py-1.5 rounded-lg border border-indigo-100/20 leading-relaxed">
+                  <p className="text-[10px] md:text-xs text-slate-600 bg-white/70 px-2 py-1.5 rounded border border-indigo-100/20 leading-relaxed">
                     {globalTranslationResult.grammar_feedback}
                   </p>
                 </div>
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 

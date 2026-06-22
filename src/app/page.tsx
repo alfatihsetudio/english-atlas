@@ -39,7 +39,7 @@ export default function HomeAtlas() {
       if (session?.user) {
         setUser(session.user);
         const { data: roleData } = await (supabase
-          .from('user_roles')
+          .from('profiles')
           .select('role')
           .eq('id', session.user.id)
           .single() as any);
@@ -54,7 +54,7 @@ export default function HomeAtlas() {
       if (session?.user) {
         setUser(session.user);
         const { data: roleData } = await (supabase
-          .from('user_roles')
+          .from('profiles')
           .select('role')
           .eq('id', session.user.id)
           .single() as any);

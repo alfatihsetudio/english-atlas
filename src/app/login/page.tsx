@@ -27,7 +27,7 @@ export default function LoginPage() {
       if (authData.user) {
         // Ambil data role berdasarkan id user
         const { data: roleData, error: roleError } = await supabase
-          .from('user_roles')
+          .from('profiles')
           .select('role')
           .eq('id', authData.user.id)
           .single();

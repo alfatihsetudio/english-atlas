@@ -24,8 +24,8 @@ export default function CustomNode({ data }: NodeProps) {
   const hasExtraContent = !!(data.formula || data.example);
 
   return (
-    <div className={`px-4 py-3 shadow-lg rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} min-w-[200px] text-center transition-transform hover:scale-105`}>
-      <Handle type="target" position={Position.Top} className="!w-3 !h-3 !bg-slate-400 border-2 border-white" />
+    <div className={`px-4 py-3 md:px-4 md:py-3 shadow-lg rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} min-w-[140px] md:min-w-[200px] text-center transition-transform hover:scale-105`}>
+      <Handle type="target" position={Position.Top} className="!w-3.5 !h-3.5 !bg-slate-400 border-2 border-white" />
       <div className="font-extrabold text-sm tracking-wide">{data.label}</div>
       {data.category && (
         <div className="text-[10px] uppercase font-bold opacity-75 mt-1 tracking-wider">
@@ -37,19 +37,19 @@ export default function CustomNode({ data }: NodeProps) {
         <>
           <hr className={`my-2 ${category === 'root' ? 'border-white/20' : 'border-black/10'}`} />
           {data.formula && (
-            <div className={`text-xs font-mono p-1 rounded mt-1 whitespace-pre-wrap ${category === 'root' ? 'bg-white/10' : 'bg-black/5'}`}>
+            <div className={`text-[11px] font-mono p-1.5 rounded mt-1 whitespace-pre-wrap ${category === 'root' ? 'bg-white/10' : 'bg-black/5'}`}>
               {data.formula}
             </div>
           )}
           {data.example && (
-            <div className={`text-[10px] italic mt-1 line-clamp-2 ${category === 'root' ? 'text-slate-300' : 'text-slate-600'}`}>
+            <div className={`text-[11px] italic mt-1 line-clamp-2 ${category === 'root' ? 'text-slate-300' : 'text-slate-600'}`}>
               {data.example}
             </div>
           )}
         </>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-slate-400 border-2 border-white" />
+      <Handle type="source" position={Position.Bottom} className="!w-3.5 !h-3.5 !bg-slate-400 border-2 border-white" />
     </div>
   );
 }

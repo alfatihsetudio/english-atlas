@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { X, Save } from 'lucide-react';
 import { Node as DbNode, Edge as DbEdge } from '@/types/database';
@@ -12,6 +13,7 @@ const nodeTypes = { custom: CustomNode };
 const edgeTypes = {};
 
 export default function AdminAtlasEditor() {
+  const router = useRouter();
   const [nodes, setNodes] = useState<RfNode[]>([]);
   const [edges, setEdges] = useState<RfEdge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,8 +70,28 @@ export default function AdminAtlasEditor() {
       }
     }
 
-    fetchAtlasData();
-  }, []);
+    async function checkAdminAuth() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        router.push('/');
+        return;
+      }
+      const { data: roleData } = await (supabase
+        .from('user_roles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single() as any);
+      
+      if (roleData?.role !== 'admin') {
+        router.push('/');
+        return;
+      }
+      
+      await fetchAtlasData();
+    }
+
+    checkAdminAuth();
+  }, [router]);
 
   // Update position local saat drag
   const onNodesChange = useCallback(

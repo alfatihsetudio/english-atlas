@@ -42,7 +42,7 @@ export default function LoginPage() {
         if (role === 'admin') {
           router.push('/admin');
         } else {
-          router.push('/atlas');
+          router.push('/');
         }
       }
     } catch (err: any) {

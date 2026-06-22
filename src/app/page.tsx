@@ -238,9 +238,9 @@ export default function HomeAtlas() {
   }
 
   return (
-    <div className="relative h-screen w-screen bg-slate-50 overflow-hidden font-sans">
+    <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden bg-slate-50 font-sans">
       {/* Floating Header */}
-      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-3 bg-white/90 backdrop-blur-sm px-4 py-2.5 md:px-6 md:py-3 rounded-full shadow-lg border border-slate-200 transition-all hover:bg-white">
+      <div className="fixed top-4 left-4 md:top-6 md:left-6 z-40 flex items-center gap-3 bg-white/90 backdrop-blur-sm px-4 py-2.5 md:px-6 md:py-3 rounded-full shadow-lg border border-slate-200 transition-all hover:bg-white">
         <div className="font-bold text-xl text-indigo-600 mr-4">English Atlas</div>
         
         {user ? (
@@ -274,8 +274,8 @@ export default function HomeAtlas() {
         )}
       </div>
 
-      {/* Search Bar AI — bottom on mobile, top-center on desktop */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-[92%] md:bottom-auto md:top-6 md:w-full md:max-w-lg px-0 md:px-4">
+      {/* Search Bar AI — fixed bottom on mobile, fixed top-center on desktop */}
+      <div className="fixed z-50 bottom-12 md:bottom-auto md:top-6 left-1/2 -translate-x-1/2 w-[90vw] md:w-[400px]">
         <form onSubmit={handleAnalyze} className="relative flex items-center shadow-2xl rounded-2xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
           <input
             type="text"
@@ -324,7 +324,7 @@ export default function HomeAtlas() {
       {/* Panel Materi: Bottom Sheet on mobile, Side Panel on desktop */}
       {selectedNode && (
         <div className="
-          absolute z-30
+          fixed z-30
           bottom-0 left-0 w-full rounded-t-2xl max-h-[55vh]
           md:bottom-auto md:top-0 md:right-0 md:left-auto md:w-96 md:h-full md:rounded-none md:max-h-full
           bg-white shadow-2xl

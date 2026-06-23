@@ -127,8 +127,8 @@ export default function DictionarySearch() {
       <div className="fixed z-50 bottom-4 left-4 md:left-1/2 md:transform md:-translate-x-1/2 pointer-events-none">
         <form
           onSubmit={handleSearch}
-          className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200 rounded-full shadow-lg px-3 py-2 pointer-events-auto"
-          style={{ width: 'calc(100vw - 6rem)', maxWidth: '420px' }}
+          className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200 rounded-full shadow-lg px-3.5 h-10 pointer-events-auto"
+          style={{ width: 'calc(100vw - 7.5rem)', maxWidth: '420px' }}
         >
           <BookOpen size={15} className="text-indigo-500 shrink-0" />
           <input

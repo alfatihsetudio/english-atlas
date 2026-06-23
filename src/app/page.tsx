@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
@@ -13,8 +13,10 @@ import UsernameModal from '@/components/UsernameModal';
 import UserMenu from '@/components/UserMenu';
 import DictionarySearch from '@/components/DictionarySearch';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { TENSE_EXAMPLES } from '@/lib/examples';
 
-import { useMemo } from 'react';
+const EnglishTutorChat = dynamic(() => import('@/components/EnglishTutorChat'), { ssr: false });
 
 export default function HomeAtlas() {
   const router = useRouter();
@@ -60,53 +62,106 @@ export default function HomeAtlas() {
 
   const [isLegendOpen, setIsLegendOpen] = useState(false);
 
-  // Translation & Grammar check assistant states
-  const [translateText, setTranslateText] = useState('');
-  const [translateDirection, setTranslateDirection] = useState<'id-en' | 'en-id'>('id-en');
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [translationResult, setTranslationResult] = useState<{ translation: string; grammar_feedback: string } | null>(null);
-  const [translateError, setTranslateError] = useState<string | null>(null);
+  // Grammar check states
+  const [grammarText, setGrammarText] = useState('');
+  const [isCheckingGrammar, setIsCheckingGrammar] = useState(false);
+  const [grammarResult, setGrammarResult] = useState<{ is_correct: boolean; explanation: string } | null>(null);
+  const [grammarError, setGrammarError] = useState<string | null>(null);
+  const [showExamples, setShowExamples] = useState(false);
+  const [aiExamples, setAiExamples] = useState<string | null>(null);
+  const [isGeneratingExample, setIsGeneratingExample] = useState(false);
+  const [generateExampleError, setGenerateExampleError] = useState<string | null>(null);
 
-  // Reset translation assistant on node change
+  const [sheetHeight, setSheetHeight] = useState<number>(350);
+  const [isDraggingSheet, setIsDraggingSheet] = useState(false);
+  const dragStartY = useRef<number>(0);
+  const dragStartHeight = useRef<number>(0);
+  const [isMobile, setIsMobile] = useState(false);
+
   useEffect(() => {
-    setTranslateText('');
-    setTranslationResult(null);
-    setTranslateError(null);
+    setIsMobile(window.innerWidth < 768);
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Reset grammar check states, examples dropdown, and height on node change
+  useEffect(() => {
+    setGrammarText('');
+    setGrammarResult(null);
+    setGrammarError(null);
+    setShowExamples(false);
+    setAiExamples(null);
+    setGenerateExampleError(null);
+    if (typeof window !== 'undefined') {
+      setSheetHeight(window.innerHeight * 0.5);
+    }
   }, [selectedNode?.id]);
 
-  const handleTranslateAndCheck = async (e: React.FormEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (!translateText.trim()) return;
+    setIsDraggingSheet(true);
+    dragStartY.current = e.clientY;
+    dragStartHeight.current = sheetHeight;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
 
-    setIsTranslating(true);
-    setTranslateError(null);
-    setTranslationResult(null);
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingSheet) return;
+    const deltaY = dragStartY.current - e.clientY;
+    const newHeight = Math.max(150, Math.min(window.innerHeight - 20, dragStartHeight.current + deltaY));
+    setSheetHeight(newHeight);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingSheet) return;
+    setIsDraggingSheet(false);
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    
+    const halfScreen = window.innerHeight * 0.5;
+    const fullScreen = window.innerHeight * 0.95;
+    
+    if (sheetHeight < 200) {
+      setSelectedNode(null);
+    } else if (sheetHeight > window.innerHeight * 0.7) {
+      setSheetHeight(fullScreen);
+    } else {
+      setSheetHeight(halfScreen);
+    }
+  };
+
+  const handleGrammarCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!grammarText.trim()) return;
+
+    setIsCheckingGrammar(true);
+    setGrammarError(null);
+    setGrammarResult(null);
 
     try {
-      const res = await fetch('/api/translate', {
+      const res = await fetch('/api/check-grammar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: translateText, direction: translateDirection }),
+        body: JSON.stringify({ sentence: grammarText, ruleContext: selectedNode?.title }),
       });
 
       if (!res.ok) {
         const errData = await res.json();
-        throw new Error(errData.error || 'Gagal menerjemahkan teks.');
+        throw new Error(errData.error || 'Gagal memeriksa tata bahasa.');
       }
 
       const data = await res.json();
-      setTranslationResult({
-        translation: data.translation || '',
-        grammar_feedback: data.grammar_feedback || '',
+      setGrammarResult({
+        is_correct: data.is_correct,
+        explanation: data.explanation || '',
       });
 
-      const englishSentence = translateDirection === 'id-en' ? data.translation : translateText;
-      if (englishSentence) {
+      if (data.is_correct) {
         try {
           const resAnalyze = await fetch('/api/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sentence: englishSentence }),
+            body: JSON.stringify({ sentence: grammarText }),
           });
           if (resAnalyze.ok) {
             const dataAnalyze = await resAnalyze.json();
@@ -120,10 +175,32 @@ export default function HomeAtlas() {
         }
       }
     } catch (err: any) {
-      console.error('Error in handleTranslateAndCheck:', err);
-      setTranslateError(err.message || 'Terjadi kesalahan jaringan.');
+      console.error('Error in handleGrammarCheck:', err);
+      setGrammarError(err.message || 'Terjadi kesalahan jaringan.');
     } finally {
-      setIsTranslating(false);
+      setIsCheckingGrammar(false);
+    }
+  };
+
+  const handleGenerateAiExample = async () => {
+    if (!selectedNode) return;
+    setIsGeneratingExample(true);
+    setGenerateExampleError(null);
+    try {
+      const res = await fetch('/api/generate-example', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenseName: selectedNode.title }),
+      });
+      if (!res.ok) {
+        throw new Error('Gagal menghasilkan contoh AI.');
+      }
+      const data = await res.json();
+      setAiExamples(data.examples);
+    } catch (err: any) {
+      setGenerateExampleError(err.message || 'Terjadi kesalahan.');
+    } finally {
+      setIsGeneratingExample(false);
     }
   };
 
@@ -449,10 +526,10 @@ export default function HomeAtlas() {
   }, [analyzeQuery]);
 
   useEffect(() => {
-    if (translateText.trim() === '') {
+    if (grammarText.trim() === '') {
       setHighlightedTitles([]);
     }
-  }, [translateText]);
+  }, [grammarText]);
 
   useEffect(() => {
     if (globalTranslateText.trim() === '') {
@@ -629,6 +706,7 @@ export default function HomeAtlas() {
               onLogout={handleLogout}
               onAdminClick={() => router.push('/admin')}
               onAvatarUpdate={(url) => setAvatarUrl(url)}
+              onUsernameUpdate={(name) => setUsername(name)}
             />
           ) : (
             <button
@@ -643,12 +721,12 @@ export default function HomeAtlas() {
       </div>
 
       {/* Center-top: Search/Translation Container — sits below the navbar */}
-      <div className="fixed z-30 top-14 left-0 right-0 px-3 md:left-1/2 md:-translate-x-1/2 md:w-auto md:right-auto md:max-w-xl pointer-events-none pt-3">
-        <div className="flex flex-col gap-2 w-full pointer-events-auto">
+      <div className="fixed z-30 top-14 left-0 right-0 px-3 md:left-1/2 md:-translate-x-1/2 md:w-auto md:right-auto md:max-w-[400px] pointer-events-none pt-3">
+        <div className="flex flex-col gap-1.5 w-full pointer-events-auto">
 
 
           {/* Grammar Analysis Form */}
-          <form onSubmit={handleAnalyze} className="relative flex items-center shadow-md rounded-xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
+          <form onSubmit={handleAnalyze} className="relative flex items-center shadow-md rounded-xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-0.5">
             <input
               type="text"
               value={analyzeQuery}
@@ -659,22 +737,31 @@ export default function HomeAtlas() {
             <button
               type="submit"
               disabled={isLoadingAi}
-              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 md:px-6 md:py-2.5 min-w-[70px] md:min-w-[120px] rounded-lg md:rounded-full text-white font-semibold transition-all text-[11px] md:text-base shrink-0 ${
-                isLoadingAi ? 'bg-slate-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 shadow-sm hover:shadow-md'
+              className={`flex items-center justify-center px-3.5 py-1.5 md:px-5 md:py-2 rounded-xl md:rounded-2xl text-white font-medium transition-all duration-200 shrink-0 transform active:scale-[0.97] ${
+                isLoadingAi 
+                  ? 'bg-slate-400 cursor-wait' 
+                  : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-md shadow-indigo-200/50 hover:shadow-lg hover:-translate-y-0.5'
               }`}
             >
-              {isLoadingAi ? <span className="animate-pulse">...</span> : 'Analisis'}
+              {isLoadingAi ? (
+                <span className="animate-pulse text-xs">...</span>
+              ) : (
+                <div className="flex flex-col items-center text-[9px] md:text-[11px] leading-tight select-none tracking-wider uppercase">
+                  <span>Analisis</span>
+                  <span>Grammar</span>
+                </div>
+              )}
             </button>
           </form>
 
           {/* Language Assistant — Always visible */}
-          <div className="flex bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-indigo-50 p-2.5 flex-col gap-2 overflow-hidden">
+          <div className="flex bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-indigo-50 p-2 flex-col gap-1.5 overflow-hidden">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <div className="p-1 bg-indigo-100 text-indigo-600 rounded">
-                  <Languages size={12} />
+                  <Languages size={11} />
                 </div>
-                <span className="text-xs font-bold text-slate-700">Language Assistant</span>
+                <span className="text-[11px] font-bold text-slate-700">Language Assistant</span>
               </div>
               {(globalTranslateText || globalTranslationResult || globalTranslateError) && (
                 <button
@@ -684,7 +771,7 @@ export default function HomeAtlas() {
                     setGlobalTranslateError(null);
                     setHighlightedTitles([]);
                   }}
-                  className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold"
+                  className="text-[9px] text-indigo-600 hover:text-indigo-800 font-semibold"
                 >
                   Clear
                 </button>
@@ -692,7 +779,7 @@ export default function HomeAtlas() {
             </div>
 
             {/* Language Selector Row */}
-            <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+            <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-md border border-slate-200/80">
               {/* Source Language Select */}
               <div className="relative flex-1">
                 <select
@@ -703,12 +790,12 @@ export default function HomeAtlas() {
                     setTranslationResultGlobal(null);
                     setGlobalTranslateError(null);
                   }}
-                  className="w-full appearance-none cursor-pointer bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-[10px] md:text-xs rounded-md py-1.5 px-2 pr-6 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-center"
+                  className="w-full appearance-none cursor-pointer bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-[10px] rounded-md py-1 px-1.5 pr-5 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-center"
                 >
                   {POPULAR_LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
                 </select>
-                <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
-                  <ChevronDown size={10} />
+                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400">
+                  <ChevronDown size={8} />
                 </div>
               </div>
 
@@ -716,10 +803,10 @@ export default function HomeAtlas() {
               <button
                 type="button"
                 onClick={handleSwapGlobalLanguages}
-                className="p-1 rounded-md text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="p-0.5 rounded text-indigo-600 hover:bg-indigo-50 transition-colors"
                 title="Tukar bahasa"
               >
-                <ArrowRightLeft size={12} />
+                <ArrowRightLeft size={11} />
               </button>
 
               {/* Target Language Select */}
@@ -731,18 +818,18 @@ export default function HomeAtlas() {
                     setTranslationResultGlobal(null);
                     setGlobalTranslateError(null);
                   }}
-                  className="w-full appearance-none cursor-pointer bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-[10px] md:text-xs rounded-md py-1.5 px-2 pr-6 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-center"
+                  className="w-full appearance-none cursor-pointer bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-[10px] rounded-md py-1 px-1.5 pr-5 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all text-center"
                 >
                   {POPULAR_LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
                 </select>
-                <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
-                  <ChevronDown size={10} />
+                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400">
+                  <ChevronDown size={8} />
                 </div>
               </div>
             </div>
 
             {/* Input + Go Row */}
-            <form onSubmit={handleGlobalTranslateAndCheck} className="flex gap-2">
+            <form onSubmit={handleGlobalTranslateAndCheck} className="flex gap-1.5">
               <input
                 type="text"
                 value={globalTranslateText}
@@ -756,24 +843,24 @@ export default function HomeAtlas() {
                   }
                 }}
                 placeholder={`Ketik dalam bahasa ${globalSourceLang}...`}
-                className="flex-grow bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs md:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all w-full min-w-0"
+                className="flex-grow bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all w-full min-w-0"
               />
               {globalTranslateText && (
                 <button
                   type="button"
                   onClick={() => playAudio(globalTranslateText, globalSourceLang === 'Indonesia' ? 'id-ID' : 'en-US')}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shrink-0"
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shrink-0"
                   title="Dengarkan teks sumber"
                 >
-                  <Volume2 size={14} />
+                  <Volume2 size={12} />
                 </button>
               )}
               <button
                 type="submit"
                 disabled={isGlobalTranslating || !globalTranslateText.trim()}
-                className="flex items-center justify-center px-4 py-1.5 rounded-lg text-white font-semibold text-[11px] transition-all shadow-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 shrink-0"
+                className="flex items-center justify-center px-3.5 py-1 rounded-md text-white font-bold text-[10px] transition-all shadow-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 shrink-0"
               >
-                {isGlobalTranslating ? <Loader2 size={12} className="animate-spin" /> : 'Go'}
+                {isGlobalTranslating ? <Loader2 size={11} className="animate-spin" /> : 'Go'}
               </button>
             </form>
 
@@ -840,69 +927,70 @@ export default function HomeAtlas() {
           </div>
         </div>
       </div>
-
       {/* Rumus Dasar (Legend) Widget — bottom-left, above bottom bar */}
-      <div className="fixed z-50 bottom-20 left-4 md:bottom-8 md:left-8 flex flex-col items-start gap-2 pointer-events-none">
-        <button
-          onClick={() => setIsLegendOpen(!isLegendOpen)}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-full shadow-lg transition-all border border-slate-600 pointer-events-auto"
-        >
-          <BookOpen size={18} />
-          <span className="font-semibold text-sm">Rumus Dasar</span>
-          <ChevronDown size={16} className={`transform transition-transform ${isLegendOpen ? 'rotate-180' : ''}`} />
-        </button>
-        
-        {isLegendOpen && (
-          <div className="relative bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl w-[calc(100vw-2rem)] md:w-[350px] max-h-[60vh] overflow-y-auto pointer-events-auto">
-            <button
-              onClick={() => setIsLegendOpen(false)}
-              className="md:hidden absolute top-3 right-3 p-1.5 rounded-md text-slate-600 hover:bg-slate-100"
-              aria-label="Tutup Rumus Dasar"
-            >
-              <X size={16} />
-            </button>
+      {!selectedNode && (
+        <div className="fixed z-50 bottom-20 left-4 md:bottom-8 md:left-8 flex flex-col items-start gap-1.5 pointer-events-none">
+          <button
+            onClick={() => setIsLegendOpen(!isLegendOpen)}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-full shadow-md transition-all border border-slate-600 pointer-events-auto"
+          >
+            <BookOpen size={14} />
+            <span className="font-semibold text-xs">Rumus Dasar</span>
+            <ChevronDown size={14} className={`transform transition-transform ${isLegendOpen ? 'rotate-180' : ''}`} />
+          </button>
 
-            <h3 className="font-bold text-slate-800 text-base md:text-lg border-b pb-2 mb-3">Rumus Dasar (Legend)</h3>
-            
-            <div className="space-y-4 text-sm text-slate-700">
-              <section>
-                <h4 className="font-semibold text-indigo-600 mb-1">Subject & Auxiliary</h4>
-                <div className="bg-slate-50 p-2 rounded-lg text-xs space-y-1.5 border border-slate-100">
-                  <p><span className="font-bold">Present:</span></p>
-                  <ul className="list-disc pl-4 text-slate-600">
-                    <li>I &rarr; am / do / have</li>
-                    <li>You/They/We &rarr; are / do / have</li>
-                    <li>He/She/It &rarr; is / does / has</li>
-                  </ul>
-                  <p className="mt-2"><span className="font-bold">Past:</span></p>
-                  <ul className="list-disc pl-4 text-slate-600">
-                    <li>I/He/She/It &rarr; was / did / had</li>
-                    <li>You/They/We &rarr; were / did / had</li>
-                  </ul>
-                </div>
-              </section>
+          {isLegendOpen && (
+            <div className="relative bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg w-[calc(100vw-2rem)] md:w-[300px] max-h-[40vh] overflow-y-auto pointer-events-auto">
+              <button
+                onClick={() => setIsLegendOpen(false)}
+                className="md:hidden absolute top-2 right-2 p-1 rounded-md text-slate-600 hover:bg-slate-100"
+                aria-label="Tutup Rumus Dasar"
+              >
+                <X size={14} />
+              </button>
 
-              <section>
-                <h4 className="font-semibold text-indigo-600 mb-1">Verb Definition</h4>
-                <div className="bg-slate-50 p-2 rounded-lg text-xs space-y-2 border border-slate-100">
-                  <p><span className="font-bold text-slate-800">V1 (Infinitive):</span> Kata kerja dasar (e.g., go, eat).</p>
-                  <p><span className="font-bold text-slate-800">V2 (Past):</span> Kata kerja masa lalu (e.g., went, ate).</p>
-                  <p><span className="font-bold text-slate-800">V3 (Past Participle):</span> Kata kerja bentuk ketiga, dipakai di Perfect Tense/Pasif (e.g., gone, eaten).</p>
-                  <p><span className="font-bold text-slate-800">V-ing (Present Participle):</span> Kata kerja + ing, untuk kejadian yang sedang berlangsung (e.g., going, eating).</p>
-                  
-                  <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-100">
-                    <span className="font-bold text-amber-800">Regular vs Irregular:</span>
-                    <ul className="list-disc pl-4 mt-1 text-amber-900">
-                      <li><span className="font-medium">Regular:</span> V2 & V3 ditambah -ed (play &rarr; played).</li>
-                      <li><span className="font-medium">Irregular:</span> V2 & V3 berubah bentuk (go &rarr; went &rarr; gone).</li>
+              <h3 className="font-bold text-slate-800 text-sm border-b pb-1.5 mb-2 pr-6">Rumus Dasar (Legend)</h3>
+
+              <div className="space-y-2 text-[11px] text-slate-700">
+                <section>
+                  <h4 className="font-bold text-indigo-600 mb-0.5">Subject & Auxiliary</h4>
+                  <div className="bg-slate-50 p-1.5 rounded-lg space-y-1 border border-slate-100">
+                    <p><span className="font-bold">Present:</span></p>
+                    <ul className="list-disc pl-3.5 text-slate-600 space-y-0.5">
+                      <li>I &rarr; am / do / have</li>
+                      <li>You/They/We &rarr; are / do / have</li>
+                      <li>He/She/It &rarr; is / does / has</li>
+                    </ul>
+                    <p className="mt-1"><span className="font-bold">Past:</span></p>
+                    <ul className="list-disc pl-3.5 text-slate-600 space-y-0.5">
+                      <li>I/He/She/It &rarr; was / did / had</li>
+                      <li>You/They/We &rarr; were / did / had</li>
                     </ul>
                   </div>
-                </div>
-              </section>
+                </section>
+
+                <section>
+                  <h4 className="font-bold text-indigo-600 mb-0.5">Verb Definition</h4>
+                  <div className="bg-slate-50 p-1.5 rounded-lg space-y-1 border border-slate-100">
+                    <p><span className="font-semibold text-slate-800">V1 (Infinitive):</span> Kata kerja dasar (e.g., go, eat).</p>
+                    <p><span className="font-semibold text-slate-800">V2 (Past):</span> Kata kerja masa lalu (e.g., went, ate).</p>
+                    <p><span className="font-semibold text-slate-800">V3 (Past Participle):</span> Kata kerja V3, untuk Perfect/Pasif (e.g., gone, eaten).</p>
+                    <p><span className="font-semibold text-slate-800">V-ing (Present Part:):</span> Kata kerja + ing, untuk Continuous (e.g., going).</p>
+
+                    <div className="mt-1 p-1 bg-amber-50 rounded border border-amber-100 text-[10px]">
+                      <span className="font-bold text-amber-800">Regular vs Irregular:</span>
+                      <ul className="list-disc pl-3.5 mt-0.5 text-amber-900 space-y-0.5">
+                        <li><span className="font-medium">Regular:</span> V2 & V3 +ed (played).</li>
+                        <li><span className="font-medium">Irregular:</span> Berubah bentuk (go-went-gone).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <ReactFlow
         nodes={displayNodes}
@@ -916,6 +1004,7 @@ export default function HomeAtlas() {
         fitView
         minZoom={Number.MIN_VALUE}
         maxZoom={Number.MAX_VALUE}
+        proOptions={{ hideAttribution: true }}
         className="z-0"
       >
         <Background gap={16} size={1} />
@@ -923,82 +1012,80 @@ export default function HomeAtlas() {
       </ReactFlow>
 
       {/* Smart Dictionary */}
-      <DictionarySearch />
+      {!selectedNode && <DictionarySearch />}
+
+      {/* AI Chatbot */}
+      {!selectedNode && <EnglishTutorChat username={username} />}
 
       {/* Panel Materi: Bottom Sheet on mobile, Side Panel on desktop */}
       {selectedNode && (
-        <div className="
-          fixed z-30
-          bottom-0 left-0 w-full rounded-t-2xl max-h-[70vh]
-          md:bottom-auto md:top-0 md:right-0 md:left-auto md:w-96 md:h-full md:rounded-none md:max-h-full
-          bg-white shadow-2xl
-          border-t border-slate-200 md:border-t-0 md:border-l
-          flex flex-col
-          transform transition-all duration-300 ease-in-out
-        ">
+        <div 
+          className={`
+            fixed z-30
+            bottom-0 left-0 w-full rounded-t-2xl
+            md:bottom-auto md:top-0 md:right-0 md:left-auto md:w-96 md:h-full md:rounded-none
+            bg-white shadow-2xl
+            border-t border-slate-200 md:border-t-0 md:border-l
+            flex flex-col
+            ${isDraggingSheet ? '' : 'transition-all duration-300 ease-out'}
+          `}
+          style={isMobile ? { height: `${sheetHeight}px`, maxHeight: '95vh' } : {}}
+        >
           {/* Drag handle — mobile only */}
-          <div className="flex justify-center pt-3 pb-1 md:hidden">
-            <div className="w-10 h-1 bg-slate-300 rounded-full" />
+          <div 
+            className="flex justify-center pt-2.5 pb-1.5 md:hidden cursor-row-resize select-none touch-none active:bg-slate-50 rounded-t-2xl"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          >
+            <div className="w-12 h-1 bg-slate-300 rounded-full" />
           </div>
 
           {/* Header Panel */}
-          <div className="flex items-start justify-between px-5 py-4 md:p-6 border-b border-slate-100 bg-slate-50 md:rounded-none rounded-t-2xl">
-            <div className="flex flex-col gap-1.5 pr-4">
-              <h2 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight">
+          <div className="flex items-start justify-between px-4 py-3 md:p-5 border-b border-slate-100 bg-slate-50 md:rounded-none rounded-t-2xl">
+            <div className="flex flex-col gap-1 pr-4">
+              <h2 className="text-lg md:text-xl font-bold text-slate-800 leading-tight">
                 {selectedNode.title}
               </h2>
               {selectedNode.category && (
-                <span className="inline-block px-2 py-1 bg-slate-200 text-slate-600 text-xs font-semibold rounded w-max">
+                <span className="inline-block px-1.5 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-semibold rounded w-max">
                   {selectedNode.category}
                 </span>
               )}
             </div>
             <button
               onClick={closePanel}
-              className="p-2.5 -mr-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="p-1.5 -mr-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
               aria-label="Tutup panel"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
-          
+
           {/* Konten Panel */}
-          <div className="px-5 py-4 md:p-6 flex-grow overflow-y-auto">
-            {selectedNode.description ? (
-              <div className="text-slate-600 text-sm md:text-base leading-relaxed whitespace-pre-wrap mb-4">
-                {selectedNode.description}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center mb-4">
-                <p className="text-slate-400 italic text-sm text-center">
-                  Belum ada deskripsi untuk materi ini.
-                </p>
-              </div>
-            )}
-
-            {selectedNode.usage_context && (
-              <div className="mb-5 bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r-lg">
-                <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Info size={14} /> Usage Context</h3>
-                <p className="text-sm text-amber-900">{selectedNode.usage_context}</p>
-              </div>
-            )}
-
+          <div className="px-4 py-3.5 md:p-5 flex-grow overflow-y-auto">
             {(selectedNode.verbal_formula || selectedNode.nominal_formula) && (
-              <div className="mb-5">
-                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 border-b pb-1">Verbal vs Nominal</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="mb-4">
+                <h3 className="text-xs font-extrabold text-slate-800 mb-2.5 border-b pb-1">Verbal vs Nominal</h3>
+                <div className="grid grid-cols-1 gap-2.5">
                   {selectedNode.verbal_formula && (
-                    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-                      <h4 className="text-xs font-bold text-indigo-600 uppercase mb-2">Verbal</h4>
-                      <div className="font-mono text-sm text-slate-800 bg-slate-50 p-2 rounded whitespace-pre-wrap">
+                    <div className="bg-indigo-50/40 border border-indigo-100 rounded-xl p-2.5 shadow-sm">
+                      <h4 className="text-[10px] font-bold text-indigo-700 uppercase mb-1.5 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                        Verbal Formula
+                      </h4>
+                      <div className="font-mono text-xs font-bold text-slate-800 bg-white border border-indigo-100/50 p-2 rounded-lg whitespace-pre-wrap">
                         {selectedNode.verbal_formula}
                       </div>
                     </div>
                   )}
                   {selectedNode.nominal_formula && (
-                    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-                      <h4 className="text-xs font-bold text-teal-600 uppercase mb-2">Nominal</h4>
-                      <div className="font-mono text-sm text-slate-800 bg-slate-50 p-2 rounded whitespace-pre-wrap">
+                    <div className="bg-teal-50/40 border border-teal-100 rounded-xl p-2.5 shadow-sm">
+                      <h4 className="text-[10px] font-bold text-teal-700 uppercase mb-1.5 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                        Nominal Formula
+                      </h4>
+                      <div className="font-mono text-xs font-bold text-slate-800 bg-white border border-teal-100/50 p-2 rounded-lg whitespace-pre-wrap">
                         {selectedNode.nominal_formula}
                       </div>
                     </div>
@@ -1008,29 +1095,38 @@ export default function HomeAtlas() {
             )}
 
             {(selectedNode.pos_form || selectedNode.neg_form || selectedNode.int_form) && (
-              <div className="mb-5">
-                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 border-b pb-1">Forms (+), (-), (?)</h3>
-                <div className="space-y-2">
+              <div className="mb-4">
+                <h3 className="text-xs font-extrabold text-slate-800 mb-2.5 border-b pb-1">Forms (+), (-), (?)</h3>
+                <div className="space-y-2.5">
                   {selectedNode.pos_form && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-green-600">(+) Positive</span>
-                      <div className="bg-slate-800 text-green-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-2.5 shadow-sm">
+                      <span className="text-[10px] font-bold text-emerald-800 flex items-center gap-1.5 mb-1.5">
+                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 font-extrabold text-[10px] shadow-sm">+</span>
+                        Positive Statement
+                      </span>
+                      <div className="bg-white/80 border border-emerald-200/50 text-emerald-900 font-mono p-2 rounded-lg whitespace-pre-wrap text-xs font-bold">
                         {selectedNode.pos_form}
                       </div>
                     </div>
                   )}
                   {selectedNode.neg_form && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-red-500">(-) Negative</span>
-                      <div className="bg-slate-800 text-red-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                    <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-2.5 shadow-sm">
+                      <span className="text-[10px] font-bold text-rose-800 flex items-center gap-1.5 mb-1.5">
+                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-700 font-extrabold text-[10px] shadow-sm">-</span>
+                        Negative Statement
+                      </span>
+                      <div className="bg-white/80 border border-rose-200/50 text-rose-900 font-mono p-2 rounded-lg whitespace-pre-wrap text-xs font-bold">
                         {selectedNode.neg_form}
                       </div>
                     </div>
                   )}
                   {selectedNode.int_form && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-blue-500">(?) Interrogative</span>
-                      <div className="bg-slate-800 text-blue-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                    <div className="bg-sky-50/50 border border-sky-100 rounded-xl p-2.5 shadow-sm">
+                      <span className="text-[10px] font-bold text-sky-800 flex items-center gap-1.5 mb-1.5">
+                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-100 text-sky-700 font-extrabold text-[10px] shadow-sm">?</span>
+                        Interrogative Question
+                      </span>
+                      <div className="bg-white/80 border border-sky-200/50 text-sky-900 font-mono p-2 rounded-lg whitespace-pre-wrap text-xs font-bold">
                         {selectedNode.int_form}
                       </div>
                     </div>
@@ -1039,31 +1135,102 @@ export default function HomeAtlas() {
               </div>
             )}
 
-            {selectedNode.time_signals && (
-              <div className="mb-5 bg-indigo-50 border border-indigo-100 p-3 rounded-lg">
-                <h3 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Clock size={14} /> Time Signals</h3>
-                <p className="text-sm font-medium text-slate-700 italic">
-                  {selectedNode.time_signals}
-                </p>
-              </div>
-            )}
-
             {/* Fallback for legacy formula/example if they exist but new fields don't */}
             {!selectedNode.verbal_formula && !selectedNode.nominal_formula && selectedNode.formula && (
-              <div className="mb-5">
-                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-2">Formula</h3>
-                <div className="bg-slate-800 text-green-400 font-mono p-3 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+              <div className="mb-4 bg-emerald-50/50 border border-emerald-100 rounded-xl p-2.5 shadow-sm">
+                <h3 className="text-xs font-bold text-emerald-800 mb-1.5">Formula</h3>
+                <div className="bg-white/80 border border-emerald-200/50 text-emerald-900 font-mono p-2 rounded-lg text-xs font-bold">
                   {selectedNode.formula}
                 </div>
               </div>
             )}
 
-            {!selectedNode.verbal_formula && !selectedNode.nominal_formula && selectedNode.example && (
-              <div className="mb-5">
-                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-2">Examples</h3>
-                <div className="border-l-4 border-blue-500 bg-blue-50 p-3 italic whitespace-pre-wrap text-xs md:text-sm text-slate-700">
-                  {selectedNode.example}
+            {(() => {
+              const activeExamples = TENSE_EXAMPLES[selectedNode.title] || selectedNode.example;
+              if (!activeExamples) return null;
+              return (
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowExamples(!showExamples)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-indigo-50 hover:bg-indigo-100/70 text-indigo-700 rounded-xl transition-colors border border-indigo-100 shadow-sm"
+                  >
+                    <span className="text-[11px] font-extrabold flex items-center gap-1.5 uppercase tracking-wider">
+                      <BookOpen size={12} className="text-indigo-600" />
+                      Lihat Contoh Kalimat
+                    </span>
+                    <ChevronDown size={14} className={`transform transition-transform duration-200 text-indigo-600 ${showExamples ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showExamples && (
+                    <div className="mt-2 bg-indigo-50/20 border border-indigo-100/50 rounded-xl p-3 shadow-inner space-y-3">
+                      <div className="text-xs font-medium text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {activeExamples}
+                      </div>
+
+                      <div className="border-t border-indigo-100/50 pt-2.5 flex flex-col gap-2">
+                        <button
+                          type="button"
+                          disabled={isGeneratingExample}
+                          onClick={handleGenerateAiExample}
+                          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-[10px] font-bold disabled:opacity-50"
+                        >
+                          {isGeneratingExample ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin" />
+                              Membuat contoh...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={12} />
+                              Buatkan Contoh Lain (AI)
+                            </>
+                          )}
+                        </button>
+                        
+                        {generateExampleError && (
+                          <p className="text-[10px] text-red-500">{generateExampleError}</p>
+                        )}
+                        
+                        {aiExamples && (
+                          <div className="bg-white border border-indigo-100 p-2.5 rounded-lg text-xs font-medium text-slate-700 whitespace-pre-wrap leading-relaxed relative pr-8 animate-fadeIn">
+                            <button
+                              type="button"
+                              onClick={() => playAudio(aiExamples, 'en-US')}
+                              className="absolute top-2 right-2 p-1 hover:bg-indigo-50 rounded text-indigo-600 transition-colors"
+                              title="Dengarkan Contoh AI"
+                            >
+                              <Volume2 size={13} />
+                            </button>
+                            <div className="text-[9px] font-bold text-indigo-600 uppercase mb-1.5 tracking-wider">Contoh Baru dari AI:</div>
+                            {aiExamples}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
+              );
+            })()}
+
+            {selectedNode.usage_context && (
+              <div className="mb-4 bg-amber-50/60 border border-amber-200/80 rounded-xl p-3 shadow-sm">
+                <h3 className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Info size={12} /> Usage Context</h3>
+                <p className="text-xs text-amber-950 font-medium leading-relaxed">{selectedNode.usage_context}</p>
+              </div>
+            )}
+
+            {selectedNode.time_signals && (
+              <div className="mb-4 bg-violet-50/60 border border-violet-200/80 rounded-xl p-3 shadow-sm">
+                <h3 className="text-[10px] font-bold text-violet-800 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Clock size={12} /> Time Signals</h3>
+                <p className="text-xs font-medium text-violet-950 italic leading-relaxed">
+                  {selectedNode.time_signals}
+                </p>
+              </div>
+            )}
+
+            {selectedNode.description && (
+              <div className="text-slate-600 text-xs md:text-sm leading-relaxed whitespace-pre-wrap mb-3.5">
+                {selectedNode.description}
               </div>
             )}
 
@@ -1086,90 +1253,80 @@ export default function HomeAtlas() {
             />
 
             {/* Divider */}
-            <div className="my-5 border-t border-slate-200" />
+            <div className="my-4 border-t border-slate-200" />
 
-            {/* Translation & Grammar Checker Assistant */}
-            <div className="space-y-4">
+            {/* Sistem Cek Grammar */}
+            <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
-                    <Languages size={18} />
+                <div className="flex items-center gap-1.5">
+                  <div className="p-1 bg-indigo-100 text-indigo-700 rounded-lg">
+                    <Sparkles size={15} />
                   </div>
-                  <h3 className="text-base md:text-lg font-semibold text-slate-800">
-                    Asisten Penerjemah & Grammar
+                  <h3 className="text-xs font-bold text-slate-800">
+                    Sistem Cek Grammar
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setTranslateDirection(prev => prev === 'id-en' ? 'en-id' : 'id-en')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors text-xs font-semibold"
-                >
-                  <ArrowRightLeft size={14} />
-                  {translateDirection === 'id-en' ? 'ID → EN' : 'EN → ID'}
-                </button>
               </div>
-              <p className="text-xs text-slate-500">
-                {translateDirection === 'id-en' 
-                  ? `Ketik kalimat bahasa Indonesia di bawah ini untuk diterjemahkan ke bahasa Inggris dan diperiksa tata bahasanya sesuai kaidah ${selectedNode.title}.`
-                  : `Ketik kalimat bahasa Inggris di bawah ini untuk diterjemahkan ke bahasa Indonesia dan diperiksa tata bahasanya sesuai kaidah ${selectedNode.title}.`}
+              <p className="text-[10px] text-slate-500 leading-normal">
+                Ketik kalimat bahasa Inggris di bawah ini untuk diperiksa tata bahasanya sesuai kaidah {selectedNode.title}.
               </p>
 
-              <form onSubmit={handleTranslateAndCheck} className="space-y-3">
+              <form onSubmit={handleGrammarCheck} className="space-y-2">
                 <textarea
-                  value={translateText}
-                  onChange={(e) => setTranslateText(e.target.value)}
+                  value={grammarText}
+                  onChange={(e) => setGrammarText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      if (translateText.trim() && !isTranslating) {
-                        handleTranslateAndCheck(e);
+                      if (grammarText.trim() && !isCheckingGrammar) {
+                        handleGrammarCheck(e);
                       }
                     }
                   }}
-                  placeholder={translateDirection === 'id-en' ? "Contoh: Saya sedang belajar bahasa Inggris..." : "Contoh: I am learning English..."}
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-slate-50 focus:bg-white transition-all shadow-inner"
+                  placeholder="Contoh: I am studying English now..."
+                  rows={2}
+                  className="w-full rounded-lg border border-slate-200 p-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none bg-slate-50 focus:bg-white transition-all shadow-inner"
                 />
 
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   <button
                     type="submit"
-                    disabled={isTranslating || !translateText.trim()}
-                    className="flex-grow flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-white font-semibold text-sm transition-all shadow-md active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100"
+                    disabled={isCheckingGrammar || !grammarText.trim()}
+                    className="flex-grow flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-white font-semibold text-xs transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none bg-indigo-600 hover:bg-indigo-700 shadow-sm"
                   >
-                    {isTranslating ? (
+                    {isCheckingGrammar ? (
                       <>
-                        <Loader2 size={16} className="animate-spin" />
-                        Memproses...
+                        <Loader2 size={13} className="animate-spin" />
+                        Memeriksa...
                       </>
                     ) : (
                       <>
-                        <Sparkles size={16} />
-                        Translate & Check
+                        <Sparkles size={13} />
+                        Cek Grammar
                       </>
                     )}
                   </button>
 
-                  {translateText && (
+                  {grammarText && (
                     <button
                       type="button"
-                      onClick={() => playAudio(translateText, translateDirection === 'id-en' ? 'id-ID' : 'en-US')}
-                      className="px-3 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-all shadow-sm shrink-0"
-                      title="Dengarkan teks sumber"
+                      onClick={() => playAudio(grammarText, 'en-US')}
+                      className="px-2.5 py-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0"
+                      title="Dengarkan teks"
                     >
-                      <Volume2 size={16} />
+                      <Volume2 size={13} />
                     </button>
                   )}
 
-                  {(translateText || translationResult || translateError) && (
+                  {(grammarText || grammarResult || grammarError) && (
                     <button
                       type="button"
                       onClick={() => {
-                        setTranslateText('');
-                        setTranslationResult(null);
-                        setTranslateError(null);
+                        setGrammarText('');
+                        setGrammarResult(null);
+                        setGrammarError(null);
                       }}
-                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 font-semibold text-sm transition-all shadow-sm shrink-0"
+                      className="px-3 py-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 font-semibold text-xs transition-all shrink-0"
                     >
                       Clear
                     </button>
@@ -1177,42 +1334,25 @@ export default function HomeAtlas() {
                 </div>
               </form>
 
-              {translateError && (
-                <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100">
-                  {translateError}
+              {grammarError && (
+                <div className="p-2 bg-red-50 text-red-600 text-[10px] rounded-lg border border-red-100">
+                  {grammarError}
                 </div>
               )}
 
-              {translationResult && (
-                <div className="space-y-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 max-h-[180px] overflow-y-auto">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wider">
-                        {translateDirection === 'id-en' ? 'Terjemahan Inggris:' : 'Terjemahan Indonesia:'}
-                      </h4>
-                      <button
-                        type="button"
-                        onClick={() => playAudio(translationResult.translation, translateDirection === 'id-en' ? 'en-US' : 'id-ID')}
-                        className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded transition-colors"
-                        title="Dengarkan terjemahan"
-                      >
-                        <Volume2 size={14} />
-                      </button>
-                    </div>
-                    <p className="text-sm font-medium text-slate-800 bg-white px-3 py-2 rounded-lg border border-indigo-100/50 shadow-sm leading-relaxed">
-                      {translationResult.translation}
-                    </p>
+              {grammarResult && (
+                <div className={`space-y-2 p-3 rounded-lg border max-h-[160px] overflow-y-auto ${
+                  grammarResult.is_correct 
+                    ? 'bg-green-50 border-green-100 text-green-800' 
+                    : 'bg-red-50 border-red-100 text-red-800'
+                }`}>
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <span className={`inline-block w-2 h-2 rounded-full ${grammarResult.is_correct ? 'bg-green-500' : 'bg-red-500'}`} />
+                    {grammarResult.is_correct ? 'Tata Bahasa Benar!' : 'Perlu Koreksi'}
                   </div>
-                  {translationResult.grammar_feedback && (
-                    <div>
-                      <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-1">
-                        Catatan Grammar:
-                      </h4>
-                      <p className="text-xs text-slate-600 bg-white/70 px-3 py-2 rounded-lg border border-indigo-100/20 leading-relaxed">
-                        {translationResult.grammar_feedback}
-                      </p>
-                    </div>
-                  )}
+                  <p className="text-[11px] leading-relaxed font-medium bg-white/70 px-2 py-1.5 rounded border border-white/20 shadow-sm">
+                    {grammarResult.explanation}
+                  </p>
                 </div>
               )}
             </div>

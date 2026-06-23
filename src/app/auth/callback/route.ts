@@ -13,10 +13,10 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`https://englishatlas.vercel.app${next}`);
     }
   }
 
   // If something goes wrong, redirect to home anyway
-  return NextResponse.redirect(`${origin}/`);
+  return NextResponse.redirect(`https://englishatlas.vercel.app/`);
 }

@@ -122,11 +122,11 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            message: trimmed, 
-            history: chatHistory,
-            username: localUsername || 'Siswa'
-          }),
+        body: JSON.stringify({
+          message: trimmed,
+          history: chatHistory,
+          username: localUsername || 'Siswa'
+        }),
       });
 
       if (!res.ok) {
@@ -196,9 +196,8 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
       {isOpen && (
         <div
           ref={chatWindowRef}
-          className={`fixed z-[9999] right-4 bottom-20 md:right-6 md:bottom-24 w-[calc(100vw-2rem)] max-w-sm shadow-2xl rounded-2xl border border-slate-200 overflow-hidden flex flex-col transition-all duration-300 ease-out ${
-            isMinimized ? 'h-14' : 'h-[480px] md:h-[520px]'
-          }`}
+          className={`fixed z-[9999] right-4 bottom-20 md:right-6 md:bottom-24 w-[calc(100vw-2rem)] max-w-sm shadow-2xl rounded-2xl border border-slate-200 overflow-hidden flex flex-col transition-all duration-300 ease-out ${isMinimized ? 'h-14' : 'h-full max-h-[80vh] md:max-h-[600px]'
+            }`}
           style={{
             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           }}
@@ -250,22 +249,20 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
                   >
                     {/* Avatar */}
                     <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                        msg.role === 'user'
+                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${msg.role === 'user'
                           ? 'bg-indigo-600 text-white'
                           : 'bg-slate-100 text-slate-500 border border-slate-200'
-                      }`}
+                        }`}
                     >
                       {msg.role === 'user' ? <User size={13} /> : <Bot size={13} />}
                     </div>
 
                     {/* Bubble */}
                     <div
-                      className={`max-w-[78%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                        msg.role === 'user'
+                      className={`max-w-[78%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${msg.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-tr-sm'
                           : 'bg-white text-slate-800 border border-slate-100 shadow-sm rounded-tl-sm'
-                      }`}
+                        }`}
                     >
                       {formatText(msg.text)}
                     </div>
@@ -332,21 +329,22 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
           setIsOpen(!isOpen);
           setIsMinimized(false);
         }}
-        className={`fixed z-[9999] right-4 bottom-4 md:right-6 md:bottom-6 h-14 rounded-full shadow-xl flex items-center justify-center gap-2 px-3 transition-all duration-300 hover:scale-110 active:scale-95 ${
-          isOpen
-            ? 'bg-slate-700 hover:bg-slate-800 rotate-0'
-            : 'bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800'
-        }`}
+        className={`fixed z-[9999] right-4 bottom-4 md:right-6 md:bottom-6 h-10 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 ${isOpen
+            ? 'bg-slate-700 hover:bg-slate-800 rotate-0 w-10 sm:w-14'
+            : 'bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 px-3 sm:px-5 gap-1.5 sm:gap-2'
+          }`}
         title={isOpen ? 'Tutup Atlas AI' : 'Buka Atlas AI'}
         aria-label="Atlas AI Chat"
       >
         {isOpen ? (
-          <X size={22} className="text-white" />
+          <X size={16} className="text-white sm:w-[20px] sm:h-[20px]" />
         ) : (
-          <MessageCircle size={22} className="text-white" />
+          <>
+            <MessageCircle size={16} className="text-white sm:w-[18px] sm:h-[18px]" />
+            <span className="text-white font-black text-xs sm:hidden tracking-wider select-none">AI</span>
+            <span className="hidden sm:inline-block text-white font-bold text-sm select-none">Tanya AI</span>
+          </>
         )}
-
-        <span className="hidden md:inline-block text-white font-semibold select-none">Atlas AI</span>
 
         {/* Unread badge */}
         {hasUnread && (

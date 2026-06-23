@@ -19,7 +19,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `https://englishatlas.vercel.app/auth/callback`,
         },
       });
       if (authError) throw authError;

@@ -434,6 +434,7 @@ export default function AdminAtlasEditor() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        proOptions={{ hideAttribution: true }}
         className="z-0"
         selectionMode={SelectionMode.Partial}
         selectionOnDrag={true}

@@ -26,8 +26,12 @@ export default function CustomNode({ data }: NodeProps) {
   const hasExtraContent = hasLegacyContent || hasNewContent;
 
   return (
-    <div className={`p-3 shadow-lg rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} w-[300px] text-left`}>
-      <Handle type="target" position={Position.Top} className="!w-3 !h-3 !bg-slate-400 border-2 border-white" />
+    <div className={`p-3 shadow-lg rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} w-[300px] text-left relative`}>
+      {/* 4 Target Handles */}
+      <Handle type="target" position={Position.Top} id="t-top" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="target" position={Position.Bottom} id="t-bottom" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="target" position={Position.Left} id="t-left" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="target" position={Position.Right} id="t-right" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
       <div className="font-extrabold text-xs text-center tracking-wide">{data.label}</div>
       {data.category && (
         <div className="text-[9px] uppercase text-center font-bold opacity-75 mt-0.5 tracking-wider">
@@ -83,7 +87,11 @@ export default function CustomNode({ data }: NodeProps) {
         </>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-slate-400 border-2 border-white" />
+      {/* 4 Source Handles (overlapping with targets) */}
+      <Handle type="source" position={Position.Top} id="s-top" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="source" position={Position.Bottom} id="s-bottom" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="source" position={Position.Left} id="s-left" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
+      <Handle type="source" position={Position.Right} id="s-right" className="!w-2.5 !h-2.5 !bg-slate-400 border-2 border-white hover:!bg-indigo-500 transition-colors" />
     </div>
   );
 }

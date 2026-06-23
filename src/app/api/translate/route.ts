@@ -20,13 +20,12 @@ export async function POST(req: NextRequest) {
 
     const promptText = `Anda adalah guru bahasa Inggris. Tugas Anda:
 1. Terjemahkan teks dari bahasa ${sourceLang} ke bahasa ${targetLang} yang natural.
-2. Periksa grammar-nya (fokus pada bahasa Inggris-nya, baik dari teks asli jika sumbernya Inggris, atau hasil terjemahan jika sumbernya Indonesia).
-3. Jelaskan umpan balik grammar secara detail namun ringkas sepenuhnya dalam Bahasa Indonesia secara ramah dan profesional (jangan gunakan Bahasa Inggris dalam penjelasan/catatan feedback ini, kecuali untuk menyebutkan istilah grammar atau contoh kata).
-4. Jika terjemahan atau teks sumber melibatkan bahasa Inggris, berikan transkripsi fonetik (IPA) untuk teks bahasa Inggris tersebut. Jika tidak melibatkan bahasa Inggris, kosongkan saja field phonetics.
+2. Tentukan nama tense/grammar dari kalimat bahasa Inggris tersebut (baik dari teks asli jika sumbernya Inggris, atau hasil terjemahan jika sumbernya Indonesia). Jawab dengan sangat singkat berupa nama tense/strukturnya saja (contoh: "Present Simple", "Past Continuous", "Nominal Past Simple", dll). Jangan berikan penjelasan panjang lebar.
+3. Berikan transkripsi fonetik (IPA) untuk teks bahasa Inggris tersebut. Jika tidak melibatkan bahasa Inggris, kosongkan saja field phonetics.
 Output harus berupa JSON dengan skema persis seperti berikut:
 {
   "translation": "Hasil terjemahan kalimat ke bahasa ${targetLang}",
-  "grammar_feedback": "Penjelasan grammar (ditulis dalam Bahasa Indonesia), kesalahan tata bahasa jika ada, atau tips perbaikan",
+  "grammar_feedback": "Nama Tense / Grammar singkat saja (contoh: Present Simple)",
   "phonetics": "/dɪˈɡruː.mɛnt/ (kosongkan jika bukan bahasa Inggris)"
 }
 

@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange, SelectionMode } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange, SelectionMode, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
-import { X, Save, ShieldAlert, ShieldX, AlertTriangle, Loader2, Clock, Info, Magnet } from 'lucide-react';
+import { X, Save, ShieldAlert, ShieldX, AlertTriangle, Loader2, Clock, Info, Magnet, Undo, Redo } from 'lucide-react';
 import { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import CustomNode from '@/components/CustomNode';
 
@@ -19,6 +19,54 @@ interface AuthState {
   status: AuthStatus;
   message: string;
   details?: string;
+}
+
+function routeEdgesEfficiently(nodes: RfNode[], edges: RfEdge[]): RfEdge[] {
+  return edges.map(edge => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+
+    if (!sourceNode || !targetNode) return edge;
+
+    const sourceCenter = {
+      x: sourceNode.position.x + 150,
+      y: sourceNode.position.y + 75
+    };
+    const targetCenter = {
+      x: targetNode.position.x + 150,
+      y: targetNode.position.y + 75
+    };
+
+    const dx = targetCenter.x - sourceCenter.x;
+    const dy = targetCenter.y - sourceCenter.y;
+
+    let sourceHandle = 's-bottom';
+    let targetHandle = 't-top';
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0) {
+        sourceHandle = 's-right';
+        targetHandle = 't-left';
+      } else {
+        sourceHandle = 's-left';
+        targetHandle = 't-right';
+      }
+    } else {
+      if (dy > 0) {
+        sourceHandle = 's-bottom';
+        targetHandle = 't-top';
+      } else {
+        sourceHandle = 's-top';
+        targetHandle = 't-bottom';
+      }
+    }
+
+    return {
+      ...edge,
+      sourceHandle,
+      targetHandle
+    };
+  });
 }
 
 export default function AdminAtlasEditor() {
@@ -53,6 +101,14 @@ export default function AdminAtlasEditor() {
   } | null>(null);
 
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+
+  // Undo & Redo History state
+  const [past, setPast] = useState<RfNode[][]>([]);
+  const [future, setFuture] = useState<RfNode[][]>([]);
+
+  const routedEdges = useMemo(() => {
+    return routeEdgesEfficiently(nodes, edges);
+  }, [nodes, edges]);
 
   // =====================================================
   // STRICT ASYNC AUTH CHECK
@@ -252,6 +308,52 @@ export default function AdminAtlasEditor() {
     [setNodes]
   );
 
+  // Snapshot before drag starts
+  const handleNodeDragStart = useCallback(() => {
+    const snapshot = JSON.parse(JSON.stringify(nodes));
+    setPast((prev) => [...prev, snapshot]);
+    setFuture([]); // Clear redo stack on new action
+  }, [nodes]);
+
+  const handleUndo = useCallback(() => {
+    if (past.length === 0) return;
+    const previous = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+
+    const current = JSON.parse(JSON.stringify(nodes));
+    setFuture((prev) => [current, ...prev]);
+    setPast(newPast);
+    setNodes(previous);
+  }, [past, nodes]);
+
+  const handleRedo = useCallback(() => {
+    if (future.length === 0) return;
+    const next = future[0];
+    const newFuture = future.slice(1);
+
+    const current = JSON.parse(JSON.stringify(nodes));
+    setPast((prev) => [...prev, current]);
+    setFuture(newFuture);
+    setNodes(next);
+  }, [future, nodes]);
+
+  // Keyboard shortcuts listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          handleUndo();
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
   const handleSaveMap = async () => {
     setIsSaving(true);
     try {
@@ -425,15 +527,18 @@ export default function AdminAtlasEditor() {
 
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={routedEdges}
         onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
+        onNodeDragStart={handleNodeDragStart}
         nodesDraggable={true}
         nodesConnectable={false}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        minZoom={0.01}
+        maxZoom={20}
         proOptions={{ hideAttribution: true }}
         className="z-0"
         selectionMode={SelectionMode.Partial}
@@ -457,6 +562,34 @@ export default function AdminAtlasEditor() {
 
       {/* Action Buttons Kanan Atas */}
       <div className="absolute top-6 right-6 z-20 flex items-center gap-3">
+        {/* Undo */}
+        <button
+          onClick={handleUndo}
+          disabled={past.length === 0}
+          className={`p-3 rounded-lg font-bold shadow-lg transition-all border ${
+            past.length === 0 
+              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none' 
+              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:shadow-md active:scale-95'
+          }`}
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo size={20} />
+        </button>
+
+        {/* Redo */}
+        <button
+          onClick={handleRedo}
+          disabled={future.length === 0}
+          className={`p-3 rounded-lg font-bold shadow-lg transition-all border ${
+            future.length === 0 
+              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none' 
+              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:shadow-md active:scale-95'
+          }`}
+          title="Redo (Ctrl+Y)"
+        >
+          <Redo size={20} />
+        </button>
+
         <button
           onClick={() => setIsSnapEnabled(!isSnapEnabled)}
           className={`flex items-center gap-2 px-4 py-3 rounded-lg font-bold shadow-lg transition-all ${

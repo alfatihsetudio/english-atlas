@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge } from 'reactflow';
+import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
 import { X, Languages, Sparkles, Loader2, ArrowRightLeft, ChevronDown, BookOpen, Clock, Info, Volume2, LogIn } from 'lucide-react';
@@ -17,6 +17,54 @@ import dynamic from 'next/dynamic';
 import { TENSE_EXAMPLES } from '@/lib/examples';
 
 const EnglishTutorChat = dynamic(() => import('@/components/EnglishTutorChat'), { ssr: false });
+
+function routeEdgesEfficiently(nodes: RfNode[], edges: RfEdge[]): RfEdge[] {
+  return edges.map(edge => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+
+    if (!sourceNode || !targetNode) return edge;
+
+    const sourceCenter = {
+      x: sourceNode.position.x + 150,
+      y: sourceNode.position.y + 75
+    };
+    const targetCenter = {
+      x: targetNode.position.x + 150,
+      y: targetNode.position.y + 75
+    };
+
+    const dx = targetCenter.x - sourceCenter.x;
+    const dy = targetCenter.y - sourceCenter.y;
+
+    let sourceHandle = 's-bottom';
+    let targetHandle = 't-top';
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0) {
+        sourceHandle = 's-right';
+        targetHandle = 't-left';
+      } else {
+        sourceHandle = 's-left';
+        targetHandle = 't-right';
+      }
+    } else {
+      if (dy > 0) {
+        sourceHandle = 's-bottom';
+        targetHandle = 't-top';
+      } else {
+        sourceHandle = 's-top';
+        targetHandle = 't-bottom';
+      }
+    }
+
+    return {
+      ...edge,
+      sourceHandle,
+      targetHandle
+    };
+  });
+}
 
 export default function HomeAtlas() {
   const router = useRouter();
@@ -43,6 +91,7 @@ export default function HomeAtlas() {
   const [highlightedTitles, setHighlightedTitles] = useState<string[]>([]);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   const [analyzeQuery, setAnalyzeQuery] = useState('');
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
   
   const [selectedNode, setSelectedNode] = useState<{
     id: string;
@@ -284,9 +333,44 @@ export default function HomeAtlas() {
 
         const speakWithVoice = () => {
           const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.lang === langCode || v.lang.startsWith(langCode.split('-')[0]));
-          if (voice) {
-            utterance.voice = voice;
+          const targetLang = langCode.toLowerCase().replace('_', '-');
+          const targetLangShort = targetLang.split('-')[0];
+          
+          const langVoices = voices.filter(v => {
+            const vLang = v.lang.toLowerCase().replace('_', '-');
+            return vLang === targetLang || vLang.startsWith(targetLangShort);
+          });
+
+          // Prioritize local offline voices (localService = true) to prevent network delays and 'synthesis-failed' errors
+          const localVoices = langVoices.filter(v => v.localService === true);
+          const candidateVoices = localVoices.length > 0 ? localVoices : langVoices;
+
+          let selectedVoice = null;
+
+          if (targetLangShort === 'en') {
+            // For English, look for popular female voices in local candidates first
+            const femaleKeywords = ['zira', 'samantha', 'hazel', 'susan', 'female', 'google us english', 'victoria', 'karen', 'moira', 'tessa', 'helena', 'haruka'];
+            selectedVoice = candidateVoices.find(v => {
+              const nameLower = v.name.toLowerCase();
+              return femaleKeywords.some(keyword => nameLower.includes(keyword));
+            });
+
+            // If no local female voice matches, try matching from all voices (including remote ones)
+            if (!selectedVoice && localVoices.length > 0) {
+              selectedVoice = langVoices.find(v => {
+                const nameLower = v.name.toLowerCase();
+                return femaleKeywords.some(keyword => nameLower.includes(keyword));
+              });
+            }
+          }
+
+          // Fallback to the first candidate voice (which prioritizes local offline voices)
+          if (!selectedVoice && candidateVoices.length > 0) {
+            selectedVoice = candidateVoices[0];
+          }
+
+          if (selectedVoice) {
+            utterance.voice = selectedVoice;
           }
           window.speechSynthesis.speak(utterance);
         };
@@ -522,6 +606,7 @@ export default function HomeAtlas() {
   useEffect(() => {
     if (analyzeQuery.trim() === '') {
       setHighlightedTitles([]);
+      setAnalysisResult(null);
     }
   }, [analyzeQuery]);
 
@@ -575,57 +660,69 @@ export default function HomeAtlas() {
       } else {
         setHighlightedTitles([]);
       }
+
+      if (data.analysis) {
+        setAnalysisResult(data.analysis);
+      } else {
+        setAnalysisResult(null);
+      }
     } catch (error: any) {
       console.error('Error analyzing sentence:', error);
+      setAnalysisResult(null);
       alert('Gagal menganalisis kalimat: ' + (error.message || 'Error tidak diketahui'));
     } finally {
       setIsLoadingAi(false);
     }
   };
 
-  const displayNodes = nodes.map((node) => {
-    if (highlightedTitles.length === 0) {
-      return { ...node, style: { ...node.style, opacity: 1, boxShadow: 'none' } };
-    }
-    const isHighlighted = highlightedTitles.includes(node.data.label);
-    return {
-      ...node,
-      style: {
-        ...node.style,
-        opacity: isHighlighted ? 1 : 0.15,
-        boxShadow: isHighlighted ? '0 0 0 4px rgba(59, 130, 246, 0.6), 0 4px 20px rgba(59, 130, 246, 0.3)' : 'none',
-        borderRadius: '12px',
-        transition: 'opacity 0.3s ease, box-shadow 0.3s ease',
+  const displayNodes = useMemo(() => {
+    return nodes.map((node) => {
+      if (highlightedTitles.length === 0) {
+        return { ...node, style: { ...node.style, opacity: 1, boxShadow: 'none' } };
       }
-    };
-  });
+      const isHighlighted = highlightedTitles.includes(node.data.label);
+      return {
+        ...node,
+        style: {
+          ...node.style,
+          opacity: isHighlighted ? 1 : 0.15,
+          boxShadow: isHighlighted ? '0 0 0 4px rgba(59, 130, 246, 0.6), 0 4px 20px rgba(59, 130, 246, 0.3)' : 'none',
+          borderRadius: '12px',
+          transition: 'opacity 0.3s ease, box-shadow 0.3s ease',
+        }
+      };
+    });
+  }, [nodes, highlightedTitles]);
 
   // Pre-compute active node IDs for AND logic on edges
   const activeNodeIds = highlightedTitles.length > 0
     ? nodes.filter(n => highlightedTitles.includes(n.data?.label)).map(n => n.id)
     : [];
 
-  const displayEdges = edges.map((edge) => {
-    if (highlightedTitles.length === 0) {
-      return { 
-        ...edge, 
-        animated: true, 
-        style: { strokeWidth: 2, stroke: '#64748b' } 
-      };
-    }
-    // AND logic: BOTH source AND target must be active for the edge to light up
-    const isPath = activeNodeIds.includes(edge.source) && activeNodeIds.includes(edge.target);
-    return {
-      ...edge,
-      animated: isPath,
-      style: {
-        strokeWidth: isPath ? 4 : 1,
-        stroke: isPath ? '#3b82f6' : '#e2e8f0',
-        opacity: isPath ? 1 : 0.4,
-        transition: 'opacity 0.3s ease, stroke 0.3s ease',
+  const displayEdges = useMemo(() => {
+    const routed = routeEdgesEfficiently(nodes, edges);
+    return routed.map((edge) => {
+      if (highlightedTitles.length === 0) {
+        return { 
+          ...edge, 
+          animated: true, 
+          style: { strokeWidth: 2, stroke: '#64748b' } 
+        };
       }
-    };
-  });
+      // AND logic: BOTH source AND target must be active for the edge to light up
+      const isPath = activeNodeIds.includes(edge.source) && activeNodeIds.includes(edge.target);
+      return {
+        ...edge,
+        animated: isPath,
+        style: {
+          strokeWidth: isPath ? 4 : 1,
+          stroke: isPath ? '#3b82f6' : '#e2e8f0',
+          opacity: isPath ? 1 : 0.4,
+          transition: 'opacity 0.3s ease, stroke 0.3s ease',
+        }
+      };
+    });
+  }, [nodes, edges, activeNodeIds, highlightedTitles]);
 
   if (loading) {
     return (
@@ -651,24 +748,25 @@ export default function HomeAtlas() {
 
       {showAboutModal && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)' }}
           onClick={() => setShowAboutModal(false)}
         >
           <div
-            className="bg-white rounded-2xl p-6 shadow-2xl max-w-sm border border-slate-100"
+            className="bg-white rounded-xl p-5 shadow-xl max-w-[240px] border border-slate-100"
             onClick={(e) => e.stopPropagation()}
-            style={{ animation: 'slideUpFade 0.25s ease-out' }}
+            style={{ animation: 'slideUpFade 0.2s ease-out' }}
           >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-slate-800">About English Atlas</h2>
-              <button onClick={() => setShowAboutModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={20} />
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-slate-800">About English Atlas</h2>
+              <button onClick={() => setShowAboutModal(false)} className="text-slate-400 hover:text-slate-600 p-0.5 rounded hover:bg-slate-50 transition-colors">
+                <X size={13} />
               </button>
             </div>
-            <p className="text-slate-600 text-sm leading-relaxed mb-4">
+            <p className="text-slate-600 text-[10px] leading-relaxed mb-3">
               English Atlas adalah platform pembelajaran bahasa Inggris interaktif yang memetakan rumus-rumus grammar ke dalam bentuk visual yang intuitif. Dilengkapi dengan asisten AI personal, analisis tata bahasa otomatis, dan fitur kamus komprehensif, aplikasi ini dirancang untuk membuat pengalaman belajar bahasa Inggris menjadi lebih mudah dan terstruktur.
             </p>
-            <p className="text-xs text-slate-400 font-medium">
+            <p className="text-[9px] text-slate-400 font-medium">
               Dibuat oleh alfatih ahmad 22 juni 2026
             </p>
           </div>
@@ -679,7 +777,7 @@ export default function HomeAtlas() {
       <div className="fixed top-0 left-0 w-full h-14 px-4 flex justify-between items-center z-[60] bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
         {/* Left: Logo + About */}
         <div className="flex items-center gap-3">
-          <span className="font-bold text-lg text-indigo-600 tracking-tight">english atlas</span>
+          <span className="font-bold text-lg text-indigo-600 tracking-tight">English Atlas</span>
           <span
             className="text-sm text-slate-500 hover:text-slate-800 cursor-pointer hidden sm:block"
             onClick={() => setShowAboutModal(true)}
@@ -732,27 +830,67 @@ export default function HomeAtlas() {
               value={analyzeQuery}
               onChange={(e) => setAnalyzeQuery(e.target.value)}
               placeholder="Ketik kalimat Inggris..."
-              className="flex-grow bg-transparent border-none outline-none px-3 py-1.5 md:px-5 md:py-2.5 text-slate-800 placeholder-slate-400 text-xs md:text-base w-full min-w-0"
+              className="flex-grow bg-transparent border-none outline-none px-3 py-1.5 md:px-5 md:py-2.5 text-slate-800 placeholder-slate-400 text-xs md:text-base w-full min-w-0 pr-1"
             />
+            {analyzeQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAnalyzeQuery('');
+                  setHighlightedTitles([]);
+                }}
+                className="p-1 md:p-1.5 text-slate-300 hover:text-slate-500 transition-colors shrink-0 mr-1"
+                title="Hapus pencarian"
+              >
+                <X size={14} />
+              </button>
+            )}
             <button
               type="submit"
               disabled={isLoadingAi}
-              className={`flex items-center justify-center px-3.5 py-1.5 md:px-5 md:py-2 rounded-xl md:rounded-2xl text-white font-medium transition-all duration-200 shrink-0 transform active:scale-[0.97] ${
+              className={`flex items-center justify-center gap-1 px-3 py-1.5 md:px-4 md:py-2 rounded-full text-white text-xs font-semibold transition-all duration-200 shrink-0 transform active:scale-[0.97] ${
                 isLoadingAi 
                   ? 'bg-slate-400 cursor-wait' 
-                  : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-md shadow-indigo-200/50 hover:shadow-lg hover:-translate-y-0.5'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-sm'
               }`}
             >
               {isLoadingAi ? (
-                <span className="animate-pulse text-xs">...</span>
+                <Loader2 size={12} className="animate-spin" />
               ) : (
-                <div className="flex flex-col items-center text-[9px] md:text-[11px] leading-tight select-none tracking-wider uppercase">
-                  <span>Analisis</span>
-                  <span>Grammar</span>
-                </div>
+                <>
+                  <Sparkles size={11} className="shrink-0" />
+                  <span className="tracking-wide">Analisis</span>
+                </>
               )}
             </button>
           </form>
+
+          {/* Grammar Analysis Card Result */}
+          {analysisResult && (
+            <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-indigo-50 p-2.5 flex flex-col gap-1 text-[10px] text-left transition-all duration-300 animate-fadeIn pointer-events-auto">
+              <div className="flex items-center justify-between border-b border-indigo-50/50 pb-1.5 mb-1">
+                <span className="font-extrabold text-slate-800 tracking-wide">Hasil Analisis</span>
+                <span className="bg-indigo-50 border border-indigo-100/50 text-indigo-700 text-[9px] px-2 py-0.5 rounded-full font-bold">
+                  {analysisResult.grammar}
+                </span>
+              </div>
+              <div className="text-slate-600">
+                <span className="font-bold text-indigo-600">Grammar:</span> {analysisResult.grammar}
+              </div>
+              <div className="text-slate-600">
+                <span className="font-bold text-indigo-600">Arti:</span> &ldquo;{analysisResult.translation || analysisResult.arti}&rdquo;
+              </div>
+              <div className="text-slate-600">
+                <span className="font-bold text-indigo-600">Maksud Kalimat:</span> {analysisResult.meaning || analysisResult.maksud_kalimat}
+              </div>
+              <div className="text-slate-600 leading-relaxed">
+                <span className="font-bold text-indigo-600">Kenapa ({analysisResult.grammar})?:</span> {analysisResult.why || analysisResult.kenapa}
+              </div>
+              <div className="text-slate-600 leading-relaxed">
+                <span className="font-bold text-indigo-600">Apa yang salah:</span> <span className={analysisResult.error !== 'Tidak ada' && analysisResult.error !== '-' ? 'text-red-500 font-semibold' : ''}>{analysisResult.error || analysisResult.apa_yang_salah}</span>
+              </div>
+            </div>
+          )}
 
           {/* Language Assistant — Always visible */}
           <div className="flex bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-indigo-50 p-2 flex-col gap-1.5 overflow-hidden">
@@ -871,23 +1009,30 @@ export default function HomeAtlas() {
             )}
 
             {globalTranslationResult && (
-              <div className="space-y-2 bg-indigo-50/40 p-3 rounded-xl border border-indigo-100 max-h-[220px] overflow-y-auto">
+              <div className="space-y-2 bg-indigo-50/40 p-2.5 rounded-xl border border-indigo-100/80 overflow-hidden">
                 <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <h4 className="text-[9px] font-bold text-indigo-800 uppercase tracking-wider">
-                      Terjemahan ke {globalTargetLang}:
-                    </h4>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <h4 className="text-[9px] font-bold text-indigo-800 uppercase tracking-wider shrink-0">
+                        Terjemahan ke {globalTargetLang}:
+                      </h4>
+                      {(globalSourceLang === 'Inggris' || globalTargetLang === 'Inggris') && globalTranslationResult.grammar_feedback && (
+                        <span className="text-[9px] font-extrabold px-1.5 py-0.5 bg-indigo-100/80 text-indigo-700 rounded select-none tracking-wide truncate max-w-[150px]" title={globalTranslationResult.grammar_feedback}>
+                          {globalTranslationResult.grammar_feedback}
+                        </span>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => playAudio(globalTranslationResult.translation, globalTargetLang === 'Indonesia' ? 'id-ID' : 'en-US')}
-                      className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded transition-colors"
+                      className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded transition-colors shrink-0"
                       title="Dengarkan terjemahan"
                     >
-                      <Volume2 size={14} />
+                      <Volume2 size={13} />
                     </button>
                   </div>
-                  <div className="bg-white rounded border border-indigo-100/50 shadow-sm overflow-hidden">
-                    <p className="text-[11px] md:text-sm font-medium text-slate-800 px-2 py-1.5 leading-relaxed flex flex-wrap gap-x-1 gap-y-0.5">
+                  <div className="bg-white rounded border border-indigo-100/40 shadow-sm overflow-hidden">
+                    <p className="text-[11px] md:text-sm font-semibold text-slate-800 px-2 py-1.5 leading-relaxed flex flex-wrap gap-x-1 gap-y-0.5">
                       {globalTranslationResult.translation.split(' ').map((word, idx) => {
                         const isActive = idx === globalCurrentWordIndex;
                         return (
@@ -903,25 +1048,14 @@ export default function HomeAtlas() {
                       })}
                     </p>
                     {globalTranslationResult.phonetics && (
-                      <div className="px-2 pb-1.5 pt-0 border-t border-slate-50 mt-1">
-                        <span className="font-mono text-[10px] md:text-xs text-slate-500 italic">
+                      <div className="px-2 pb-1 pt-0.5 border-t border-slate-50 mt-0.5">
+                        <span className="font-mono text-[9px] md:text-[11px] text-slate-400 italic">
                           {globalTranslationResult.phonetics}
                         </span>
                       </div>
                     )}
                   </div>
                 </div>
-                {/* Grammar Analysis Feedback - only show if involves English */}
-                {(globalSourceLang === 'Inggris' || globalTargetLang === 'Inggris') && globalTranslationResult.grammar_feedback && (
-                  <div>
-                    <h4 className="text-[9px] font-bold text-indigo-800 uppercase tracking-wider mb-0.5">
-                      Analisis Grammar:
-                    </h4>
-                    <p className="text-[10px] md:text-xs text-slate-600 bg-white/70 px-2 py-1.5 rounded border border-indigo-100/20 leading-relaxed">
-                      {globalTranslationResult.grammar_feedback}
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </div>

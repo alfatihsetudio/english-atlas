@@ -4,12 +4,11 @@ import { useEffect, useState, useCallback } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Node as RfNode, Edge as RfEdge, applyNodeChanges, NodeChange, SelectionMode } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
-import { X, Save, ShieldAlert, ShieldX, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, Save, ShieldAlert, ShieldX, AlertTriangle, Loader2, Clock, Info, Magnet } from 'lucide-react';
 import { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import CustomNode from '@/components/CustomNode';
 
-const nodeTypes = { custom: CustomNode };
-const edgeTypes = {};
+import { useMemo } from 'react';
 
 // =====================================================
 // AUTH STATUS TYPES
@@ -23,6 +22,9 @@ interface AuthState {
 }
 
 export default function AdminAtlasEditor() {
+  const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
+  const edgeTypes = useMemo(() => ({}), []);
+
   // Auth state - NO router.push, all states render UI
   const [authState, setAuthState] = useState<AuthState>({
     status: 'loading',
@@ -41,7 +43,16 @@ export default function AdminAtlasEditor() {
     category: string | null;
     formula?: string | null;
     example?: string | null;
+    verbal_formula?: string | null;
+    nominal_formula?: string | null;
+    pos_form?: string | null;
+    neg_form?: string | null;
+    int_form?: string | null;
+    time_signals?: string | null;
+    usage_context?: string | null;
   } | null>(null);
+
+  const [isSnapEnabled, setIsSnapEnabled] = useState(true);
 
   // =====================================================
   // STRICT ASYNC AUTH CHECK
@@ -202,7 +213,14 @@ export default function AdminAtlasEditor() {
             description: node.description,
             category: node.category,
             formula: node.formula,
-            example: node.example
+            example: node.example,
+            verbal_formula: node.verbal_formula,
+            nominal_formula: node.nominal_formula,
+            pos_form: node.pos_form,
+            neg_form: node.neg_form,
+            int_form: node.int_form,
+            time_signals: node.time_signals,
+            usage_context: node.usage_context
           },
         }));
 
@@ -254,6 +272,13 @@ export default function AdminAtlasEditor() {
         throw errors[0].error;
       }
 
+      // Deteksi jika update berhasil "dijalankan" namun 0 baris yang terubah (biasanya karena RLS)
+      const emptyResults = results.filter(res => !res.error && (!res.data || res.data.length === 0));
+      if (emptyResults.length > 0) {
+        console.warn('Update berhasil dijalankan, tetapi tidak ada data yang terubah. Kemungkinan besar karena RLS (Row Level Security).');
+        throw new Error('Data tidak tersimpan! Fitur RLS Supabase aktif memblokir operasi UPDATE. Anda perlu menambahkan policy UPDATE untuk tabel nodes.');
+      }
+
       alert('Posisi peta berhasil disimpan!');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan jaringan/sistem.';
@@ -272,6 +297,13 @@ export default function AdminAtlasEditor() {
       category: node.data.category,
       formula: node.data.formula,
       example: node.data.example,
+      verbal_formula: node.data.verbal_formula,
+      nominal_formula: node.data.nominal_formula,
+      pos_form: node.data.pos_form,
+      neg_form: node.data.neg_form,
+      int_form: node.data.int_form,
+      time_signals: node.data.time_signals,
+      usage_context: node.data.usage_context,
     });
   }, []);
 
@@ -408,9 +440,11 @@ export default function AdminAtlasEditor() {
         panOnDrag={[1]}
         selectionKeyCode={null}
         panOnScroll={false}
+        snapToGrid={isSnapEnabled}
+        snapGrid={[10, 10]}
         onSelectionChange={(params) => console.log('Nodes selected:', params.nodes)}
       >
-        <Background gap={16} size={1} />
+        <Background gap={10} size={1} />
         <Controls />
         <MiniMap zoomable pannable className="rounded-lg shadow-lg" nodeColor={(n) => {
           if (n.data?.category?.toLowerCase() === 'time') return '#eff6ff';
@@ -420,8 +454,21 @@ export default function AdminAtlasEditor() {
         }} />
       </ReactFlow>
 
-      {/* Tombol Simpan di Kanan Atas */}
-      <div className="absolute top-6 right-6 z-20">
+      {/* Action Buttons Kanan Atas */}
+      <div className="absolute top-6 right-6 z-20 flex items-center gap-3">
+        <button
+          onClick={() => setIsSnapEnabled(!isSnapEnabled)}
+          className={`flex items-center gap-2 px-4 py-3 rounded-lg font-bold shadow-lg transition-all ${
+            isSnapEnabled 
+              ? 'bg-indigo-100 text-indigo-700 border border-indigo-300' 
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+          title="Toggle Magnet (Snap to Grid)"
+        >
+          <Magnet size={20} className={isSnapEnabled ? 'text-indigo-600' : 'text-slate-400'} />
+          <span className="hidden sm:inline">Magnet</span>
+        </button>
+
         <button
           onClick={handleSaveMap}
           disabled={isSaving}
@@ -463,30 +510,103 @@ export default function AdminAtlasEditor() {
           {/* Konten Panel */}
           <div className="p-6 flex-grow overflow-y-auto">
             {selectedNode.description ? (
-              <div className="text-slate-600 text-base leading-relaxed whitespace-pre-wrap mb-6">
+              <div className="text-slate-600 text-sm md:text-base leading-relaxed whitespace-pre-wrap mb-4">
                 {selectedNode.description}
               </div>
             ) : (
-              <div className="flex items-center justify-center mb-6">
+              <div className="flex items-center justify-center mb-4">
                 <p className="text-slate-400 italic text-sm text-center">
                   Belum ada deskripsi untuk materi ini.
                 </p>
               </div>
             )}
 
-            {selectedNode.formula && (
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Formula</h3>
-                <div className="bg-slate-800 text-green-400 font-mono p-3 rounded-md whitespace-pre-wrap text-sm">
+            {selectedNode.usage_context && (
+              <div className="mb-5 bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r-lg">
+                <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Info size={14} /> Usage Context</h3>
+                <p className="text-sm text-amber-900">{selectedNode.usage_context}</p>
+              </div>
+            )}
+
+            {(selectedNode.verbal_formula || selectedNode.nominal_formula) && (
+              <div className="mb-5">
+                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 border-b pb-1">Verbal vs Nominal</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {selectedNode.verbal_formula && (
+                    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+                      <h4 className="text-xs font-bold text-indigo-600 uppercase mb-2">Verbal</h4>
+                      <div className="font-mono text-sm text-slate-800 bg-slate-50 p-2 rounded whitespace-pre-wrap">
+                        {selectedNode.verbal_formula}
+                      </div>
+                    </div>
+                  )}
+                  {selectedNode.nominal_formula && (
+                    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+                      <h4 className="text-xs font-bold text-teal-600 uppercase mb-2">Nominal</h4>
+                      <div className="font-mono text-sm text-slate-800 bg-slate-50 p-2 rounded whitespace-pre-wrap">
+                        {selectedNode.nominal_formula}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {(selectedNode.pos_form || selectedNode.neg_form || selectedNode.int_form) && (
+              <div className="mb-5">
+                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-3 border-b pb-1">Forms (+), (-), (?)</h3>
+                <div className="space-y-2">
+                  {selectedNode.pos_form && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-green-600">(+) Positive</span>
+                      <div className="bg-slate-800 text-green-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                        {selectedNode.pos_form}
+                      </div>
+                    </div>
+                  )}
+                  {selectedNode.neg_form && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-red-500">(-) Negative</span>
+                      <div className="bg-slate-800 text-red-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                        {selectedNode.neg_form}
+                      </div>
+                    </div>
+                  )}
+                  {selectedNode.int_form && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-blue-500">(?) Interrogative</span>
+                      <div className="bg-slate-800 text-blue-400 font-mono p-2.5 rounded-md whitespace-pre-wrap text-xs md:text-sm">
+                        {selectedNode.int_form}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedNode.time_signals && (
+              <div className="mb-5 bg-indigo-50 border border-indigo-100 p-3 rounded-lg">
+                <h3 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Clock size={14} /> Time Signals</h3>
+                <p className="text-sm font-medium text-slate-700 italic">
+                  {selectedNode.time_signals}
+                </p>
+              </div>
+            )}
+
+            {/* Fallback for legacy formula/example if they exist but new fields don't */}
+            {!selectedNode.verbal_formula && !selectedNode.nominal_formula && selectedNode.formula && (
+              <div className="mb-5">
+                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-2">Formula</h3>
+                <div className="bg-slate-800 text-green-400 font-mono p-3 rounded-md whitespace-pre-wrap text-xs md:text-sm">
                   {selectedNode.formula}
                 </div>
               </div>
             )}
 
-            {selectedNode.example && (
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Examples</h3>
-                <div className="border-l-4 border-blue-500 bg-blue-50 p-3 italic whitespace-pre-wrap text-sm text-slate-700">
+            {!selectedNode.verbal_formula && !selectedNode.nominal_formula && selectedNode.example && (
+              <div className="mb-5">
+                <h3 className="text-base md:text-lg font-semibold text-slate-800 mb-2">Examples</h3>
+                <div className="border-l-4 border-blue-500 bg-blue-50 p-3 italic whitespace-pre-wrap text-xs md:text-sm text-slate-700">
                   {selectedNode.example}
                 </div>
               </div>

@@ -5,6 +5,13 @@ export interface Node {
   category: string | null;
   formula?: string | null;
   example?: string | null;
+  verbal_formula?: string | null;
+  nominal_formula?: string | null;
+  pos_form?: string | null;
+  neg_form?: string | null;
+  int_form?: string | null;
+  time_signals?: string | null;
+  usage_context?: string | null;
   position_x: number;
   position_y: number;
   created_at: string;

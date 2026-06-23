@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge, Position } from 'reactflow';
+import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge, Position, NodeChange, applyNodeChanges } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
 import { X, Languages, Sparkles, Loader2, ArrowRightLeft, ChevronDown, BookOpen, Clock, Info, Volume2, LogIn } from 'lucide-react';
@@ -126,6 +126,11 @@ export default function HomeAtlas() {
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
   const [isMobile, setIsMobile] = useState(false);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [setNodes]
+  );
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 768);
@@ -1129,6 +1134,7 @@ export default function HomeAtlas() {
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
+        onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         nodesDraggable={false}

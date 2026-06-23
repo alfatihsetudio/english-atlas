@@ -64,6 +64,26 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
     }
   }, [notification]);
 
+  // Handle mobile back button to close chat
+  useEffect(() => {
+    if (!isOpen) return;
+
+    window.history.pushState({ chatOpen: true }, '');
+
+    const handlePopState = () => {
+      setIsOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (window.history.state?.chatOpen) {
+        window.history.back();
+      }
+    };
+  }, [isOpen]);
+
   // Monitor Auth Session
   useEffect(() => {
     let mounted = true;

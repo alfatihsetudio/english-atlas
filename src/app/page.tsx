@@ -152,6 +152,26 @@ export default function HomeAtlas() {
     }
   }, [selectedNode?.id]);
 
+  // Handle mobile back button to close selected node panel
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    window.history.pushState({ nodePanelOpen: true }, '');
+
+    const handlePopState = () => {
+      setSelectedNode(null);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (window.history.state?.nodePanelOpen) {
+        window.history.back();
+      }
+    };
+  }, [selectedNode]);
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingSheet(true);

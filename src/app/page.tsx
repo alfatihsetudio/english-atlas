@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, { Background, Controls, Node as RfNode, Edge as RfEdge, Position, NodeChange, applyNodeChanges } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { supabase } from '@/lib/supabase';
-import { X, Languages, Sparkles, Loader2, ArrowRightLeft, ChevronDown, BookOpen, Clock, Info, Volume2, LogIn } from 'lucide-react';
+import { X, Languages, Sparkles, Loader2, ArrowRightLeft, ChevronDown, BookOpen, Clock, Info, Volume2, LogIn, Trophy } from 'lucide-react';
 import { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import CustomNode from '@/components/CustomNode';
 import QuizPanel from '@/components/QuizPanel';
@@ -1526,6 +1526,16 @@ export default function HomeAtlas() {
           </div>
         </div>
       )}
+
+      {/* Floating Game-Style Arena Button for Mobile */}
+      <Link
+        href="/arena"
+        className="sm:hidden fixed bottom-6 right-6 z-[1000] bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-[0_4px_20px_rgba(245,158,11,0.5)] border-2 border-white hover:scale-105 active:scale-95 transition-all animate-pulse"
+      >
+        <Trophy size={18} className="stroke-[2.5]" />
+        <span className="text-[8px] font-black tracking-widest uppercase mt-0.5 leading-none">RANK</span>
+      </Link>
+
     </div>
   );
 }

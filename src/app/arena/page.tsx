@@ -957,7 +957,7 @@ export default function ArenaPage() {
 
       {/* Auth Modal */}
       {showAuthModal && (
-        <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+        <AuthModal onClose={() => setShowAuthModal(false)} />
       )}
 
 

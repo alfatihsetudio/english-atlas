@@ -13,6 +13,7 @@ import UsernameModal from '@/components/UsernameModal';
 import UserMenu from '@/components/UserMenu';
 import DictionarySearch from '@/components/DictionarySearch';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { TENSE_EXAMPLES } from '@/lib/examples';
 
@@ -803,6 +804,12 @@ export default function HomeAtlas() {
         {/* Left: Logo + About */}
         <div className="flex items-center gap-3">
           <span className="font-bold text-lg text-indigo-600 tracking-tight">English Atlas</span>
+          <Link
+            href="/arena"
+            className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors hidden sm:block"
+          >
+            Atlas Rank
+          </Link>
           <span
             className="text-sm text-slate-500 hover:text-slate-800 cursor-pointer hidden sm:block"
             onClick={() => setShowAboutModal(true)}

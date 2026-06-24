@@ -24,7 +24,9 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
   const [error, setError] = useState<string | null>(null);
 
   const score = questions.reduce((acc, q, i) => {
-    return acc + (userAnswers[i] === q.answer ? 1 : 0);
+    const userAns = userAnswers[i]?.trim().toUpperCase();
+    const correctAns = q.answer?.trim().toUpperCase();
+    return acc + (userAns === correctAns ? 1 : 0);
   }, 0);
 
   const handleGenerateQuiz = useCallback(async () => {
@@ -53,7 +55,7 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
 
   const handleSelectAnswer = (questionIndex: number, letter: string) => {
     if (quizState === 'submitted') return;
-    setUserAnswers((prev) => ({ ...prev, [questionIndex]: letter }));
+    setUserAnswers((prev) => ({ ...prev, [questionIndex]: letter.toUpperCase() }));
   };
 
   const handleSubmit = () => {
@@ -76,8 +78,11 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
     setError(null);
   };
 
-  // Extract letter from option string like "A. text" → "A"
-  const getLetter = (option: string) => option.charAt(0);
+  // Extract letter from option string like "A. text" or "a. text" or " A) " → "A"
+  const getLetter = (option: string) => {
+    const match = option.trim().toUpperCase().match(/^([A-D])/);
+    return match ? match[1] : option.trim().charAt(0).toUpperCase();
+  };
 
   const getScoreColor = () => {
     const pct = score / questions.length;
@@ -215,8 +220,9 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
               {/* Questions */}
               <div className="space-y-4">
                 {questions.map((q, qi) => {
-                  const selected = userAnswers[qi];
-                  const isCorrect = selected === q.answer;
+                  const selected = userAnswers[qi]?.toUpperCase();
+                  const correctAns = q.answer?.trim().toUpperCase();
+                  const isCorrect = selected === correctAns;
 
                   return (
                     <div key={qi} className={`rounded-2xl border-2 overflow-hidden transition-all duration-300 ${
@@ -243,7 +249,7 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
                         {q.options.map((opt) => {
                           const letter = getLetter(opt);
                           const isSelected = selected === letter;
-                          const isAnswer = q.answer === letter;
+                          const isAnswer = correctAns === letter;
 
                           let optClass = 'border-slate-100 bg-slate-50/30 text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/40';
 
@@ -278,7 +284,9 @@ export default function QuizPanel({ nodeContent, nodeTitle }: QuizPanelProps) {
                               }`}>
                                 {letter}
                               </span>
-                              <span className="leading-relaxed flex-1">{opt.substring(3)}</span>
+                              <span className="leading-relaxed flex-1">
+                                {opt.replace(/^[A-D][.\s\)-:]+\s*/i, '')}
+                              </span>
 
                               {/* Status icon */}
                               {quizState === 'submitted' && isAnswer && (

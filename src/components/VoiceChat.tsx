@@ -193,12 +193,17 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
         </div>
       )}
 
-      {/* Error indicator */}
+      {/* Error indicator - tappable to see full message */}
       {error && (
-        <div className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50">
+        <button
+          type="button"
+          onClick={() => alert(`Voice Chat Error:\n\n${error}`)}
+          className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50 active:scale-95 touch-manipulation"
+          title={error}
+        >
           <WifiOff size={11} className="text-red-400" />
-          <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider hidden sm:inline">VC Error</span>
-        </div>
+          <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">VC Error</span>
+        </button>
       )}
 
       {/* Speaker button */}

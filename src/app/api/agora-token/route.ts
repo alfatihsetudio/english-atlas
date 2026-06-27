@@ -13,8 +13,15 @@ export async function POST(req: NextRequest) {
     const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
     const appCertificate = process.env.AGORA_APP_CERTIFICATE;
 
-    if (!appId || !appCertificate) {
-      return NextResponse.json({ error: 'Agora credentials missing. Make sure AGORA_APP_CERTIFICATE is in .env.local' }, { status: 500 });
+    // Detailed credential check for easier debugging
+    if (!appId && !appCertificate) {
+      return NextResponse.json({ error: 'NEXT_PUBLIC_AGORA_APP_ID dan AGORA_APP_CERTIFICATE tidak ditemukan di environment variables.' }, { status: 500 });
+    }
+    if (!appId) {
+      return NextResponse.json({ error: 'NEXT_PUBLIC_AGORA_APP_ID tidak ditemukan di environment variables.' }, { status: 500 });
+    }
+    if (!appCertificate) {
+      return NextResponse.json({ error: 'AGORA_APP_CERTIFICATE tidak ditemukan di environment variables.' }, { status: 500 });
     }
 
     // Token expires in 2 hours
@@ -41,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ token, uid: numericUid });
   } catch (error: any) {
-    console.error('Error generating token:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Error generating Agora token:', error);
+    return NextResponse.json({ error: `Token generation failed: ${error.message}` }, { status: 500 });
   }
 }

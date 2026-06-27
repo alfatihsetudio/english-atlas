@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Loader2, WifiOff } from 'lucide-react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
+
+// Suppress internal Agora SDK logs (0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR, 4=NONE)
+AgoraRTC.setLogLevel(4);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IAgoraRTCClient = any;
 
@@ -113,6 +117,10 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           // Leave isMicMuted=true so user can click to request permission
         }
       } catch (err: any) {
+        if (err?.message?.includes('WS_ABORT') || err?.message?.includes('aborted')) {
+          // Expected error when component unmounts during connection
+          return;
+        }
         console.error('[VoiceChat] Error joining:', err);
         if (active) {
           setError(err?.message || 'Gagal join voice channel.');

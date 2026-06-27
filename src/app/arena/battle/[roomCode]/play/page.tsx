@@ -9,6 +9,7 @@ import { calculateBattlePoints } from '@/utils/rankSystem';
 import dynamic from 'next/dynamic';
 
 const VoiceChat = dynamic(() => import('@/components/VoiceChat'), { ssr: false });
+const BattleChat = dynamic(() => import('@/components/BattleChat'), { ssr: false });
 
 interface QuizQuestion {
   question: string;
@@ -48,14 +49,34 @@ export default function BattlePlayPage() {
 
   // Live scores - fetched from DB and updated via realtime
   const [playerScores, setPlayerScores] = useState<PlayerScore[]>([]);
+  const [finalScores, setFinalScores] = useState<PlayerScore[] | null>(null);
   const channelRef = useRef<any>(null);
   const isFinishedRef = useRef(false);
   const gameStateRef = useRef<'loading' | 'playing' | 'finished' | 'disqualified'>('loading');
+  const isMountedRef = useRef(true);
 
   // Keep ref in sync for cleanup
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  // Lock final scores once everyone finishes so early leavers don't corrupt the scoreboard
+  useEffect(() => {
+    if (gameState === 'finished' && !finalScores) {
+      const validPlayers = playerScores.filter(p => p.score !== -1);
+      const allFinished = validPlayers.length > 0 && validPlayers.every(p => p.is_ready);
+      if (allFinished) {
+         setFinalScores([...playerScores]);
+      }
+    }
+  }, [gameState, playerScores, finalScores]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -87,7 +108,7 @@ export default function BattlePlayPage() {
 
         // Check if this user has been disqualified (score = -1)
         const { data: myParticipant } = await (supabase.from('battle_participants') as any)
-          .select('score')
+          .select('score, is_ready')
           .eq('room_id', roomData.id)
           .eq('user_id', user.id)
           .single();
@@ -99,24 +120,43 @@ export default function BattlePlayPage() {
           return;
         }
 
-        // Reset is_ready to false (meaning not finished) and score to 0
-        await (supabase.from('battle_participants') as any)
-          .update({ is_ready: false, score: 0 })
-          .eq('room_id', roomData.id)
-          .eq('user_id', user.id);
-
         // Load questions from the DB (set by Host before game started)
-        if (!roomData.questions || !Array.isArray(roomData.questions) || roomData.questions.length === 0) {
+        const totalQuestions = roomData.questions?.length || 0;
+        if (totalQuestions === 0) {
           alert('Soal pertandingan tidak ditemukan!');
           router.replace('/arena');
           return;
         }
         setQuestions(roomData.questions);
 
+        // Resume or Reset logic
+        let isAlreadyFinished = false;
+        if (myParticipant && myParticipant.score === 0 && myParticipant.is_ready) {
+           // Fresh start from lobby
+           await (supabase.from('battle_participants') as any)
+             .update({ is_ready: false, score: 0 })
+             .eq('room_id', roomData.id)
+             .eq('user_id', user.id);
+        } else if (myParticipant && myParticipant.score >= 0) {
+           // Resuming game or already finished
+           const progress = myParticipant.score % 1000;
+           setMyScore(myParticipant.score);
+           if (progress >= totalQuestions || myParticipant.is_ready) {
+              isFinishedRef.current = true;
+              isAlreadyFinished = true;
+           } else {
+              setCurrentQuestionIdx(progress);
+           }
+        }
+
         // Fetch initial live scores from DB
         await fetchLiveScores(roomData.id);
 
-        setGameState('playing');
+        if (isAlreadyFinished) {
+           setGameState('finished');
+        } else {
+           setGameState('playing');
+        }
 
         // Setup realtime for live score updates
         const channelName = `battle_play_${roomData.id}_${Math.random().toString(36).substring(2, 9)}`;
@@ -233,9 +273,26 @@ export default function BattlePlayPage() {
         .eq('room_id', room.id)
         .eq('user_id', currentUser.id)
         .then();
+        
+      // Update Winrate/Accuracy logic per question
+      (supabase.from('profiles') as any).select('total_questions_answered, total_correct_answers')
+        .eq('id', currentUser.id)
+        .single()
+        .then(({ data: profile }: { data: any }) => {
+          if (profile) {
+             const newTotalQuestions = (profile.total_questions_answered || 0) + 1;
+             const newTotalCorrect = (profile.total_correct_answers || 0) + (isCorrect ? 1 : 0);
+             (supabase.from('profiles') as any).update({
+               total_questions_answered: newTotalQuestions,
+               total_correct_answers: newTotalCorrect
+             }).eq('id', currentUser.id).then();
+          }
+        });
     }
 
     setTimeout(async () => {
+      if (!isMountedRef.current) return;
+      
       const nextIdx = currentQuestionIdx + 1;
 
       if (nextIdx >= questions.length) {
@@ -247,6 +304,12 @@ export default function BattlePlayPage() {
             .update({ score: newEncodedScore, is_ready: true })
             .eq('room_id', room.id)
             .eq('user_id', currentUser.id);
+
+          // Increment total matches played
+          const { data: profileData } = await (supabase.from('profiles') as any).select('total_matches_played').eq('id', currentUser.id).single();
+          if (profileData) {
+            await (supabase.from('profiles') as any).update({ total_matches_played: (profileData.total_matches_played || 0) + 1 }).eq('id', currentUser.id);
+          }
         }
         setGameState('finished');
       } else {
@@ -266,15 +329,16 @@ export default function BattlePlayPage() {
         if (destination === 'room') {
           // Reset room for another round
           await (supabase.from('battle_rooms') as any).update({ status: 'waiting' }).eq('id', room.id);
-          // Scores and is_ready will be reset by initGame() when they enter play again, but let's reset here too
-          await (supabase.from('battle_participants') as any).update({ score: 0, is_ready: false }).eq('room_id', room.id);
+          // Only reset MY score so the scoreboard doesn't break for others
+          await (supabase.from('battle_participants') as any).update({ score: 0, is_ready: false })
+             .eq('room_id', room.id).eq('user_id', currentUser.id);
         } else {
           // Host leaves entirely -> Warn first via custom modal
           setShowDisbandWarning(true);
           return; // Stop here, wait for modal confirmation
         }
       } else {
-        // Guest user returning to room
+        // Guest user returning to room or dashboard
         if (destination === 'room') {
           const { data: checkRoom } = await (supabase.from('battle_rooms') as any)
             .select('id')
@@ -286,6 +350,15 @@ export default function BattlePlayPage() {
             router.replace('/arena');
             return;
           }
+          // Reset MY score so I'm ready in the lobby
+          await (supabase.from('battle_participants') as any).update({ score: 0, is_ready: false })
+             .eq('room_id', room.id).eq('user_id', currentUser.id);
+        } else {
+          // Guest leaves to dashboard - clean up participant row
+          await (supabase.from('battle_participants') as any)
+             .delete()
+             .eq('room_id', room.id)
+             .eq('user_id', currentUser.id);
         }
       }
     } catch (err) {
@@ -346,11 +419,7 @@ export default function BattlePlayPage() {
 
   // ---- FINISHED SCREEN ----
   if (gameState === 'finished') {
-    // Wait for all valid players to finish (score !== -1 and is_ready means finished)
-    const validPlayers = playerScores.filter(p => p.score !== -1);
-    const allFinished = validPlayers.length > 0 && validPlayers.every(p => p.is_ready);
-
-    if (!allFinished) {
+    if (!finalScores) {
       return (
         <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-zinc-100 p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl flex flex-col items-center text-center">
@@ -373,7 +442,7 @@ export default function BattlePlayPage() {
                     ) : p.is_ready ? (
                       <span className="text-green-500">SELESAI</span>
                     ) : (
-                      <span className="text-zinc-400">BERMAIN...</span>
+                      <span className="text-zinc-400">{p.score % 1000}/{questions.length}</span>
                     )}
                   </div>
                 </div>
@@ -385,7 +454,7 @@ export default function BattlePlayPage() {
     }
 
     // All done - Show final scoreboard
-    const sortedPlayers = [...playerScores].sort((a, b) => {
+    const sortedPlayers = [...finalScores].sort((a, b) => {
       if (a.score === -1) return 1;
       if (b.score === -1) return -1;
       const aCorrect = Math.floor(a.score / 1000);
@@ -396,7 +465,7 @@ export default function BattlePlayPage() {
     const validSorted = sortedPlayers.filter(p => p.score !== -1);
     
     // Determine winner based on correct answers
-    const myScoreObj = playerScores.find(p => p.user_id === currentUser?.id);
+    const myScoreObj = finalScores.find(p => p.user_id === currentUser?.id);
     const myCorrect = myScoreObj && myScoreObj.score !== -1 ? Math.floor(myScoreObj.score / 1000) : -1;
     const topCorrect = validSorted.length > 0 ? Math.floor(validSorted[0].score / 1000) : 0;
     const topScorersCount = validSorted.filter(p => Math.floor(p.score / 1000) === topCorrect).length;
@@ -629,6 +698,18 @@ export default function BattlePlayPage() {
           </div>
         </div>
       )}
+
+    {/* Battle Chat */}
+    {room && (
+      <BattleChat 
+        roomCode={roomCode} 
+        currentUser={currentUser ? {
+          id: currentUser.id,
+          username: playerScores.find(p => p.user_id === currentUser.id)?.username || currentUser.email?.split('@')[0] || 'Player',
+          avatar_url: playerScores.find(p => p.user_id === currentUser.id)?.avatar_url || ''
+        } : null} 
+      />
+    )}
 
     </div>
   );

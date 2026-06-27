@@ -8,6 +8,7 @@ import { getRankInfo } from '@/utils/rankSystem';
 import dynamic from 'next/dynamic';
 
 const VoiceChat = dynamic(() => import('@/components/VoiceChat'), { ssr: false });
+const BattleChat = dynamic(() => import('@/components/BattleChat'), { ssr: false });
 
 export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode: string }> }) {
   const router = useRouter();
@@ -145,10 +146,15 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
     const delayDebounce = setTimeout(async () => {
       setSearching(true);
       try {
-        const { data } = await (supabase.from('profiles') as any)
+        let query = supabase.from('profiles')
           .select('id, username, avatar_url, rank_points, highest_rank_points')
-          .ilike('username', `%${searchTerm}%`)
-          .limit(5);
+          .ilike('username', `%${searchTerm}%`);
+          
+        if (currentUser?.id) {
+          query = query.neq('id', currentUser.id);
+        }
+        
+        const { data } = await (query as any).limit(5);
 
         if (data) setSearchResults(data);
       } catch (err) {
@@ -222,7 +228,8 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
   const handleStartBattle = async () => {
     if (!room || !currentUser || room.host_id !== currentUser.id) return;
     const others = participants.filter(p => p.user_id !== currentUser.id);
-    if (others.length === 0 || others.some(p => !p.is_ready)) return;
+    // Lawan dianggap benar-benar 'Ready' di lobi jika is_ready = true DAN score = 0
+    if (others.length === 0 || others.some(p => !(p.is_ready && p.score === 0))) return;
 
     setIsStarting(true);
     try {
@@ -237,7 +244,8 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
         body: JSON.stringify({ 
           currentPoints: currentPoints, 
           count: room.question_count || 5,
-          difficulty: room.difficulty || 'Tier 1: Foundation (Easy)'
+          difficulty: room.difficulty || 'Tier 1: Foundation (Easy)',
+          mode: 'battle'
         })
       });
 
@@ -334,7 +342,9 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
 
   const isHost = room?.host_id === currentUser?.id;
   const myParticipant = participants.find(p => p.user_id === currentUser?.id);
-  const allReady = participants.length > 1 && participants.filter(p => p.user_id !== room?.host_id).every(p => p.is_ready);
+  const guests = participants.filter(p => p.user_id !== room?.host_id);
+  // Guest dianggap ready untuk next match JIKA is_ready true DAN score sudah ter-reset ke 0 (tanda mereka sudah kembali ke lobi)
+  const allReady = guests.length > 0 && guests.every(p => p.is_ready && p.score === 0);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-4 flex flex-col items-center pb-28">
@@ -484,8 +494,8 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
                       👑 <span className="uppercase tracking-widest">Master</span>
                     </div>
                   ) : (
-                    <div className={`flex items-center gap-1 text-[10px] md:text-xs font-bold uppercase tracking-widest mt-auto ${player.is_ready ? 'text-green-500' : 'text-zinc-500'}`}>
-                      {player.is_ready ? <><CheckCircle2 size={12}/> READY</> : <><Clock size={12}/> WAITING</>}
+                    <div className={`flex items-center gap-1 text-[10px] md:text-xs font-bold uppercase tracking-widest mt-auto ${player.is_ready && player.score === 0 ? 'text-green-500' : 'text-zinc-500'}`}>
+                      {player.is_ready && player.score === 0 ? <><CheckCircle2 size={12}/> READY</> : <><Clock size={12}/> WAITING</>}
                     </div>
                   )}
                 </div>
@@ -550,12 +560,12 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
             <button
               onClick={handleToggleReady}
               className={`w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-black uppercase tracking-widest transition-all shadow-md border ${
-                myParticipant?.is_ready 
+                myParticipant?.is_ready && myParticipant?.score === 0
                   ? 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800' 
                   : 'bg-zinc-100 border-white text-zinc-950 hover:bg-white shadow-[0_0_20px_rgba(255,255,255,0.1)]'
               }`}
             >
-              {myParticipant?.is_ready ? 'BATAL READY' : 'READY!'}
+              {myParticipant?.is_ready && myParticipant?.score === 0 ? 'BATAL READY' : 'READY!'}
             </button>
           )}
         </div>
@@ -631,6 +641,18 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
             </div>
           </div>
         </div>
+      )}
+
+      {/* Battle Chat */}
+      {room && (
+        <BattleChat 
+          roomCode={roomCode} 
+          currentUser={currentUser ? {
+            id: currentUser.id,
+            username: myParticipant?.profiles?.username || currentUser.email?.split('@')[0] || 'Player',
+            avatar_url: myParticipant?.profiles?.avatar_url || ''
+          } : null} 
+        />
       )}
     </div>
   );

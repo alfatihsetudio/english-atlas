@@ -10,7 +10,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: NextRequest) {
   try {
-    const { currentPoints, count, difficulty, userId } = await req.json();
+    const { currentPoints, count, difficulty, userId, mode } = await req.json();
 
     if (currentPoints === undefined || typeof currentPoints !== 'number') {
       return NextResponse.json({ error: 'currentPoints is required and must be a number' }, { status: 400 });
@@ -187,11 +187,13 @@ Struktur Output JSON yang Wajib Diikuti:
     const correctAnswers = finalQuestions.map(q => (q.correct_answer || q.correct || '').toLowerCase());
     const explanations = finalQuestions.map(q => q.explanation || q.question_explanation || '');
 
+    const isBattle = mode === 'battle';
+
     const { data: sessionData, error: sessionError } = await supabase
       .from('quiz_sessions')
       .insert({
         user_id: userId || null,
-        mode: 'ranked',
+        mode: isBattle ? 'battle' : 'ranked',
         tier: tierLevel,
         questions: clientQuestions,
         correct_answers: correctAnswers,
@@ -214,7 +216,15 @@ Struktur Output JSON yang Wajib Diikuti:
       });
     }
 
-    // 6. Return secure payload (no correct answers or explanations!)
+    // If battle mode, attach correct answers to response since Battle Mode relies on instant client feedback.
+    if (isBattle) {
+      clientQuestions.forEach((q, idx) => {
+         (q as any).correct_answer = correctAnswers[idx];
+         (q as any).explanation = explanations[idx];
+      });
+    }
+
+    // 6. Return secure payload (or with answers for battle mode)
     return NextResponse.json({
       sessionId: sessionData.id,
       questions: clientQuestions

@@ -64,57 +64,82 @@ export async function POST(req: NextRequest) {
     let newPoints = 0;
     let derankedTier: string | null = null;
 
-    // 3. Update profiles if Ranked mode and userId exists
-    if (mode === 'ranked' && session.user_id) {
+    // 3. Update profiles if userId exists (for accuracy tracking across all modes)
+    if (session.user_id) {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('rank_points, highest_rank_points')
+        .select('rank_points, highest_rank_points, season_id, total_questions_answered, total_correct_answers, total_matches_played')
         .eq('id', session.user_id)
         .single();
 
       if (profileError) {
         console.error('[Submit Quiz API] Error fetching profile:', profileError);
       } else if (profile) {
-        const currentPoints = profile.rank_points || 0;
-        const currentHighest = profile.highest_rank_points || 0;
-
-        let tempPoints = currentPoints;
-        correctAnswersList.forEach((correctAnswer, idx) => {
-          const userAnswer = answers[idx];
-          const isCorrect = userAnswer && userAnswer.toLowerCase() === correctAnswer;
-          tempPoints = calculateNewPoints(tempPoints, isCorrect);
-        });
-
-        newPoints = tempPoints;
-        pointChange = newPoints - currentPoints;
-
-        const newHighest = Math.max(currentHighest, newPoints);
-
-        // Check if user deranked
-        const oldTierInfo = getRankInfo(currentPoints);
-        const newTierInfo = getRankInfo(newPoints);
+        // Calculate new accuracy stats and matches
+        const newTotalQuestions = (profile.total_questions_answered || 0) + correctAnswersList.length;
+        const newTotalCorrect = (profile.total_correct_answers || 0) + correctCount;
+        const newTotalMatches = (profile.total_matches_played || 0) + 1;
         
-        // Define tiers mapping to check if new tier index is lower
-        const tierHierarchy = ['Rookie', 'Elementary', 'Intermediate', 'Advanced', 'Immortal'];
-        const oldIdx = tierHierarchy.indexOf(oldTierInfo.tier);
-        const newIdx = tierHierarchy.indexOf(newTierInfo.tier);
+        let updateData: any = {
+          total_questions_answered: newTotalQuestions,
+          total_correct_answers: newTotalCorrect,
+          total_matches_played: newTotalMatches
+        };
 
-        if (newIdx < oldIdx) {
-          derankedTier = newTierInfo.tier;
+        // If Ranked mode, also calculate rank points
+        if (mode === 'ranked') {
+          let currentPoints = profile.rank_points || 0;
+          const currentHighest = profile.highest_rank_points || 0;
+          let currentSeason = profile.season_id;
+
+          // Perform seasonal reset if needed before adding quiz points
+          const date = new Date();
+          const currentSeasonId = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          
+          if (currentSeason !== currentSeasonId) {
+             currentPoints = Math.floor(currentPoints / 2) + 100;
+             currentSeason = currentSeasonId;
+          }
+
+          let tempPoints = currentPoints;
+          correctAnswersList.forEach((correctAnswer, idx) => {
+            const userAnswer = answers[idx];
+            const isCorrect = userAnswer && userAnswer.toLowerCase() === correctAnswer;
+            tempPoints = calculateNewPoints(tempPoints, isCorrect);
+          });
+
+          newPoints = tempPoints;
+          pointChange = newPoints - currentPoints;
+
+          const newHighest = Math.max(currentHighest, newPoints);
+
+          // Check if user deranked
+          const oldTierInfo = getRankInfo(currentPoints);
+          const newTierInfo = getRankInfo(newPoints);
+          
+          // Define tiers mapping to check if new tier index is lower
+          const tierHierarchy = ['Rookie', 'Elementary', 'Intermediate', 'Advanced', 'Immortal'];
+          const oldIdx = tierHierarchy.indexOf(oldTierInfo.tier);
+          const newIdx = tierHierarchy.indexOf(newTierInfo.tier);
+
+          if (newIdx < oldIdx) {
+            derankedTier = newTierInfo.tier;
+          }
+
+          updateData.rank_points = newPoints;
+          updateData.highest_rank_points = newHighest;
+          updateData.season_id = currentSeason;
         }
 
         // Update database
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({
-            rank_points: newPoints,
-            highest_rank_points: newHighest
-          })
+          .update(updateData)
           .eq('id', session.user_id);
 
         if (updateError) {
           console.error('[Submit Quiz API] Error updating profiles:', updateError);
-          throw new Error(`Gagal menyimpan poin ke profil: ${updateError.message}`);
+          throw new Error(`Gagal menyimpan statistik ke profil: ${updateError.message}`);
         }
       }
     }

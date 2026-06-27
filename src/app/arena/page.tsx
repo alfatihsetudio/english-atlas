@@ -14,7 +14,7 @@ import Leaderboard from '@/components/Leaderboard';
 
 export default function ArenaPage() {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<{ username: string; avatar_url: string; rank_points: number; highest_rank_points: number; global_rank: number | null; season_id?: string | null } | null>(null);
+  const [profile, setProfile] = useState<{ username: string; avatar_url: string; rank_points: number; highest_rank_points: number; global_rank: number | null; season_id?: string | null; total_questions_answered?: number; total_correct_answers?: number; total_matches_played?: number } | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -62,77 +62,57 @@ export default function ArenaPage() {
       setUser(currentUser);
 
       if (currentUser) {
-        // Fetch profile
-        const { data } = await supabase
-          .from('profiles')
-          .select('username, avatar_url, rank_points, highest_rank_points, season_id')
-          .eq('id', currentUser.id)
-          .single();
-        
-        let globalRank = null;
+        // Fetch profile securely via backend API
         try {
-          const { data: rankPos } = await (supabase.rpc as any)('get_user_rank_position', { user_id: currentUser.id });
-          globalRank = rankPos;
-        } catch (e) {
-          console.error("Error fetching global rank:", e);
-        }
-        
-        if (data) {
-          const profileData = data as any;
-          
-          // Seasonal Reset Logic
-          const date = new Date();
-          const currentSeasonId = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          
-          let currentRankPoints = profileData.rank_points || 0;
-          let currentSeason = profileData.season_id;
-          
-          if (currentSeason !== currentSeasonId) {
-            // New season detected, trigger reset!
-            currentRankPoints = Math.floor(currentRankPoints / 2) + 100;
-            currentSeason = currentSeasonId;
-            
-            // Update database silently
-            await (supabase.from('profiles') as any)
-              .update({ 
-                rank_points: currentRankPoints,
-                season_id: currentSeasonId 
-              })
-              .eq('id', currentUser.id);
-          }
-
-          setProfile({
-            username: profileData.username || currentUser.email?.split('@')[0] || 'Player',
-            avatar_url: profileData.avatar_url || '',
-            rank_points: currentRankPoints,
-            highest_rank_points: profileData.highest_rank_points || 0,
-            global_rank: globalRank,
-            season_id: currentSeason
-          });
-
-          // Trigger background refill loop for this user's private bank pool
-          const runRefillLoop = async () => {
-            try {
-              const res = await fetch(`/api/refill-bank?userId=${currentUser.id}`);
-              if (!res.ok) {
-                // If rate limited or error, try again after a longer delay (e.g. 10s)
-                setTimeout(runRefillLoop, 10000);
-                return;
-              }
-              const data = await res.json();
-              if (data.status === 'refilled') {
-                console.log(`[Arena Lobby] Pregenerated 10 questions for ${data.mode} tier ${data.tier}. Continuing refill...`);
-                setTimeout(runRefillLoop, 2500);
-              } else if (data.status === 'full') {
-                console.log('[Arena Lobby] Private bank pool is fully populated.');
-              }
-            } catch (err) {
-              console.error('[Arena Lobby] Error in background refill loop:', err);
-              setTimeout(runRefillLoop, 10000);
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch('/api/sync-profile', {
+            headers: {
+              'Authorization': `Bearer ${session?.access_token}`
             }
-          };
-          runRefillLoop();
-        } else {
+          });
+          if (res.ok) {
+            const result = await res.json();
+            if (result.profile) {
+              setProfile({
+                username: result.profile.username || currentUser.email?.split('@')[0] || 'Player',
+                avatar_url: result.profile.avatar_url || '',
+                rank_points: result.profile.rank_points || 0,
+                highest_rank_points: result.profile.highest_rank_points || 0,
+                global_rank: result.profile.global_rank,
+                season_id: result.profile.season_id,
+                total_questions_answered: result.profile.total_questions_answered || 0,
+                total_correct_answers: result.profile.total_correct_answers || 0,
+                total_matches_played: result.profile.total_matches_played || 0
+              });
+              
+              // Trigger background refill loop for this user's private bank pool
+              const runRefillLoop = async () => {
+                try {
+                  const res = await fetch(`/api/refill-bank?userId=${currentUser.id}`);
+                  if (!res.ok) {
+                    setTimeout(runRefillLoop, 10000);
+                    return;
+                  }
+                  const refillData = await res.json();
+                  if (refillData.status === 'refilled') {
+                    console.log(`[Arena Lobby] Pregenerated 10 questions for ${refillData.mode} tier ${refillData.tier}. Continuing refill...`);
+                    setTimeout(runRefillLoop, 2500);
+                  } else if (refillData.status === 'full') {
+                    console.log('[Arena Lobby] Private bank pool is fully populated.');
+                  }
+                } catch (err) {
+                  console.error('[Arena Lobby] Error in background refill loop:', err);
+                  setTimeout(runRefillLoop, 10000);
+                }
+              };
+              runRefillLoop();
+            }
+          } else {
+            console.error("Failed to sync profile");
+            setProfile({ username: currentUser.email?.split('@')[0] || 'Player', avatar_url: '', rank_points: 0, highest_rank_points: 0, global_rank: null, season_id: null, total_questions_answered: 0, total_correct_answers: 0, total_matches_played: 0 });
+          }
+        } catch (err) {
+          console.error("Error syncing profile:", err);
           setProfile({ username: currentUser.email?.split('@')[0] || 'Player', avatar_url: '', rank_points: 0, highest_rank_points: 0, global_rank: null, season_id: null });
         }
 
@@ -176,34 +156,10 @@ export default function ArenaPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Listen to battle_invites
+  // Listen to battle_invites strictly in real-time (ephemeral)
   useEffect(() => {
     if (!user) return;
-    const userId = user.id;
 
-    // Fetch any existing pending invites first (only within the last 5 minutes to avoid stale ones)
-    async function checkExistingInvites() {
-      try {
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-        const { data: existingInvites } = await (supabase.from('battle_invites') as any)
-          .select('*')
-          .eq('receiver_id', userId)
-          .eq('status', 'pending')
-          .gt('created_at', fiveMinutesAgo)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        
-        if (existingInvites && existingInvites.length > 0) {
-          const invite = existingInvites[0];
-          const { data: sender } = await supabase.from('profiles').select('username, avatar_url').eq('id', invite.sender_id).single();
-          setPendingInvite({ ...invite, sender });
-        }
-      } catch (err) {
-        console.error('Error fetching existing invites:', err);
-      }
-    }
-    checkExistingInvites();
-    
     const uniqueChannelName = `invites_${user.id}_${Math.random().toString(36).substring(2, 15)}`;
     const inviteChannel = supabase.channel(uniqueChannelName)
       .on('postgres_changes', {
@@ -213,9 +169,9 @@ export default function ArenaPage() {
         filter: `receiver_id=eq.${user.id}`
       }, async (payload) => {
         if (payload.new.status === 'pending') {
-          // Fetch sender details
-          const { data: sender } = await supabase.from('profiles').select('username, avatar_url').eq('id', payload.new.sender_id).single();
-          setPendingInvite({ ...payload.new, sender });
+          const invite = payload.new;
+          const { data: sender } = await supabase.from('profiles').select('username, avatar_url').eq('id', invite.sender_id).single();
+          setPendingInvite({ ...invite, sender });
         }
       })
       .on('postgres_changes', {
@@ -235,6 +191,18 @@ export default function ArenaPage() {
     };
   }, [user]);
 
+  // Auto-dismiss invite after 3 seconds
+  useEffect(() => {
+    if (pendingInvite && pendingInvite.status === 'pending') {
+      const timer = setTimeout(async () => {
+        setPendingInvite(null);
+        // Mark as expired in DB so it doesn't clutter
+        await (supabase.from('battle_invites') as any).update({ status: 'expired' }).eq('id', pendingInvite.id);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingInvite]);
+
   // Search debounce effect
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -245,11 +213,15 @@ export default function ArenaPage() {
     const delayDebounce = setTimeout(async () => {
       setSearching(true);
       try {
-        const { data, error } = await supabase
-          .from('profiles')
+        let query = supabase.from('profiles')
           .select('id, username, avatar_url, rank_points, highest_rank_points')
-          .ilike('username', `%${searchTerm}%`)
-          .limit(5);
+          .ilike('username', `%${searchTerm}%`);
+          
+        if (user?.id) {
+          query = query.neq('id', user.id);
+        }
+        
+        const { data, error } = await query.limit(5);
 
         if (data) {
           setSearchResults(data);
@@ -598,30 +570,31 @@ export default function ArenaPage() {
     
     // Refresh profile to get updated points
       if (user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('username, avatar_url, rank_points, highest_rank_points, season_id')
-          .eq('id', user.id)
-          .single();
-        
-        let globalRank = null;
+        const { data: { session } } = await supabase.auth.getSession();
         try {
-          const { data: rankPos } = await (supabase.rpc as any)('get_user_rank_position', { user_id: user.id });
-          globalRank = rankPos;
-        } catch (e) {
-          console.error("Error fetching global rank:", e);
-        }
-        
-        if (data) {
-          const profileData = data as any;
-          setProfile({
-            username: profileData.username || user.email?.split('@')[0] || 'Player',
-            avatar_url: profileData.avatar_url || '',
-            rank_points: profileData.rank_points || 0,
-            highest_rank_points: profileData.highest_rank_points || 0,
-            global_rank: globalRank,
-            season_id: profileData.season_id
+          const res = await fetch('/api/sync-profile', {
+            headers: {
+              'Authorization': `Bearer ${session?.access_token}`
+            }
           });
+          if (res.ok) {
+            const result = await res.json();
+            if (result.profile) {
+              setProfile({
+                username: result.profile.username || user.email?.split('@')[0] || 'Player',
+                avatar_url: result.profile.avatar_url || '',
+                rank_points: result.profile.rank_points || 0,
+                highest_rank_points: result.profile.highest_rank_points || 0,
+                global_rank: result.profile.global_rank,
+                season_id: result.profile.season_id,
+                total_questions_answered: result.profile.total_questions_answered || 0,
+                total_correct_answers: result.profile.total_correct_answers || 0,
+                total_matches_played: result.profile.total_matches_played || 0
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Error syncing profile:", err);
         }
       }
   };
@@ -694,6 +667,10 @@ export default function ArenaPage() {
   const rankInfo = profile ? getRankInfo(profile.rank_points) : null;
   const progressPercent = rankInfo 
     ? Math.min(100, Math.max(0, ((profile!.rank_points - rankInfo.minPoints) / (rankInfo.maxPoints - rankInfo.minPoints)) * 100))
+    : 0;
+    
+  const winrate = profile && profile.total_questions_answered && profile.total_questions_answered > 0
+    ? Math.round(((profile.total_correct_answers || 0) / profile.total_questions_answered) * 100)
     : 0;
 
   // Helper to get Rank emoji representation
@@ -823,30 +800,35 @@ export default function ArenaPage() {
               </div>
             )}
 
-            {/* Statistik Grid (Compact 4-column) */}
+            {/* Statistik Grid (Compact 3x2) */}
             {user ? (
-              <div className="grid grid-cols-4 gap-1 mt-2.5 border-t border-zinc-850 pt-2 text-center">
+              <div className="grid grid-cols-3 gap-y-2 mt-2.5 border-t border-zinc-850 pt-2 text-center">
+                {/* Row 1 */}
                 <div>
                   <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Total XP</div>
                   <div className="text-[10px] font-bold text-white mt-0.5">{profile?.rank_points || 0}</div>
                 </div>
                 <div className="border-l border-zinc-850">
                   <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Global</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5">
-                    {profile?.global_rank ? `#${profile.global_rank}` : '#--'}
-                  </div>
-                </div>
-                <div className="border-l border-zinc-850">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Rank</div>
-                  <div className="text-[9px] font-bold text-white mt-0.5 truncate">
-                    {rankInfo?.tier || 'Rookie'}
-                  </div>
+                  <div className="text-[10px] font-bold text-white mt-0.5">{profile?.global_rank ? `#${profile.global_rank}` : '#--'}</div>
                 </div>
                 <div className="border-l border-zinc-850">
                   <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Top</div>
-                  <div className="text-[9px] font-bold text-white mt-0.5 truncate">
-                    {profile ? getRankInfo(profile.highest_rank_points).tier : 'Rookie'}
-                  </div>
+                  <div className="text-[10px] font-bold text-white mt-0.5 truncate">{profile ? getRankInfo(profile.highest_rank_points).tier : 'Rookie'}</div>
+                </div>
+
+                {/* Row 2 */}
+                <div className="pt-1 border-t border-zinc-850/50">
+                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Matches</div>
+                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">⚔️ {profile?.total_matches_played || 0}</div>
+                </div>
+                <div className="pt-1 border-t border-zinc-850/50 border-l border-zinc-850">
+                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Questions</div>
+                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">📝 {profile?.total_questions_answered || 0}</div>
+                </div>
+                <div className="pt-1 border-t border-zinc-850/50 border-l border-zinc-850">
+                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Accuracy</div>
+                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">🎯 {winrate}%</div>
                 </div>
               </div>
             ) : (
@@ -1042,7 +1024,7 @@ export default function ArenaPage() {
             <h2 className="text-base font-black text-white mb-2 uppercase tracking-wider">Battle Arena</h2>
             <div className="bg-zinc-800/30 p-3 rounded-xl border border-zinc-800 mb-5">
               <p className="text-[10px] text-zinc-400 leading-relaxed text-center font-medium">
-                Sistem pertarungan real-time (Mabar) mulai dari <span className="text-white font-bold">1 VS 1</span> hingga <span className="text-white font-bold">4 Pemain</span>. Buat room dan bagikan kodenya, atau masukkan kode teman Anda.
+                Sistem pertarungan real-time (Mabar) mulai dari <span className="text-white font-bold">1 VS 1</span> hingga <span className="text-white font-bold">30 Pemain</span>. Buat room dan bagikan kodenya, atau masukkan kode teman Anda.
               </p>
             </div>
             

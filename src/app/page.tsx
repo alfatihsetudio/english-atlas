@@ -806,9 +806,11 @@ export default function HomeAtlas() {
           <span className="font-bold text-lg text-indigo-600 tracking-tight">English Atlas</span>
           <Link
             href="/arena"
-            className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors hidden sm:block"
+            className="bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white w-9 h-9 rounded-full flex flex-col items-center justify-center shadow-[0_2px_10px_rgba(245,158,11,0.4)] border border-white hover:scale-105 active:scale-95 transition-all animate-pulse hidden sm:flex shrink-0"
+            title="Atlas Rank Arena"
           >
-            Atlas Rank
+            <Trophy size={14} className="stroke-[2.5]" />
+            <span className="text-[6px] font-black tracking-wider uppercase mt-0.5 leading-none">RANK</span>
           </Link>
           <span
             className="text-sm text-slate-500 hover:text-slate-800 cursor-pointer hidden sm:block"
@@ -1530,7 +1532,7 @@ export default function HomeAtlas() {
       {/* Floating Game-Style Arena Button for Mobile */}
       <Link
         href="/arena"
-        className="sm:hidden fixed bottom-6 right-6 z-[1000] bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-[0_4px_20px_rgba(245,158,11,0.5)] border-2 border-white hover:scale-105 active:scale-95 transition-all animate-pulse"
+        className="sm:hidden fixed bottom-6 left-6 z-[1000] bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-[0_4px_20px_rgba(245,158,11,0.5)] border-2 border-white hover:scale-105 active:scale-95 transition-all animate-pulse"
       >
         <Trophy size={18} className="stroke-[2.5]" />
         <span className="text-[8px] font-black tracking-widest uppercase mt-0.5 leading-none">RANK</span>

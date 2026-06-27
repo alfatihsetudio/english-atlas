@@ -88,14 +88,21 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
 
         await agoraClient.join(appId as string, channelName, data.token, data.uid);
 
-        const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        localTrackRef.current = micTrack;
-        await agoraClient.publish([micTrack]);
-
         if (active) {
           setIsJoined(true);
           setIsConnecting(false);
         }
+
+        // Try to auto-create mic, but don't fail the whole join process if browser blocks it (mobile policy)
+        try {
+          const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+          localTrackRef.current = micTrack;
+          await agoraClient.publish([micTrack]);
+        } catch (micErr) {
+          console.warn('[VoiceChat] Auto-mic blocked by browser or no mic available:', micErr);
+          if (active) setIsMicMuted(true);
+        }
+
       } catch (err: any) {
         console.error('[VoiceChat] Error joining:', err);
         if (active) {
@@ -121,7 +128,22 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
   }, [channelName, uid]);
 
   const toggleMic = async () => {
-    if (!localTrackRef.current || !isJoined) return;
+    if (!isJoined) return;
+    
+    // If mic track wasn't created yet (e.g. blocked by mobile browser on auto-join), create it on user click
+    if (!localTrackRef.current) {
+      try {
+        const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        localTrackRef.current = micTrack;
+        await agoraClient.publish([micTrack]);
+        setIsMicMuted(false);
+      } catch (err) {
+        console.error('[VoiceChat] Failed to create mic track on click:', err);
+        alert('Gagal mengakses mikrofon. Pastikan Anda mengizinkan akses mikrofon di pengaturan browser Anda (dan menggunakan koneksi aman HTTPS).');
+      }
+      return;
+    }
+
     const next = !isMicMuted;
     await localTrackRef.current.setEnabled(!next);
     setIsMicMuted(next);

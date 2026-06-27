@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
 
         if (updateError) {
           console.error('[Submit Quiz API] Error updating profiles:', updateError);
+          throw new Error(`Gagal menyimpan poin ke profil: ${updateError.message}`);
         }
       }
     }

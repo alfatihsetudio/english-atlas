@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
 
     const model = genAI.getGenerativeModel({
       model: 'gemini-flash-lite-latest',
+      generationConfig: {
+        temperature: 0.7,
+      }
     });
 
     const promptText = `Kamu adalah guru bahasa Inggris yang ahli.

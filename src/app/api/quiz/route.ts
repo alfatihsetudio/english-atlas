@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
 
     const model = genAI.getGenerativeModel({
       model: 'gemini-flash-lite-latest',
+      generationConfig: {
+        temperature: 0.7,
+      }
     });
 
     const prompt = `Anda adalah pembuat soal ujian bahasa Inggris yang profesional. Buatlah tepat 5 soal pilihan ganda berdasarkan materi tata bahasa Inggris berikut:

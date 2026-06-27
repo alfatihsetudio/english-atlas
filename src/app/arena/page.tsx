@@ -49,6 +49,12 @@ export default function ArenaPage() {
   const [showOpponentPrompt, setShowOpponentPrompt] = useState(false);
   const [opponentCount, setOpponentCount] = useState<number>(1);
 
+  // States for clickable rank details modal
+  const [selectedRankForModal, setSelectedRankForModal] = useState<any | null>(null);
+  const [playersOfSelectedRank, setPlayersOfSelectedRank] = useState<any[]>([]);
+  const [loadingRankPlayers, setLoadingRankPlayers] = useState(false);
+  const [sessionId, setSessionId] = useState<string>('');
+
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -103,6 +109,29 @@ export default function ArenaPage() {
             global_rank: globalRank,
             season_id: currentSeason
           });
+
+          // Trigger background refill loop for this user's private bank pool
+          const runRefillLoop = async () => {
+            try {
+              const res = await fetch(`/api/refill-bank?userId=${currentUser.id}`);
+              if (!res.ok) {
+                // If rate limited or error, try again after a longer delay (e.g. 10s)
+                setTimeout(runRefillLoop, 10000);
+                return;
+              }
+              const data = await res.json();
+              if (data.status === 'refilled') {
+                console.log(`[Arena Lobby] Pregenerated 10 questions for ${data.mode} tier ${data.tier}. Continuing refill...`);
+                setTimeout(runRefillLoop, 2500);
+              } else if (data.status === 'full') {
+                console.log('[Arena Lobby] Private bank pool is fully populated.');
+              }
+            } catch (err) {
+              console.error('[Arena Lobby] Error in background refill loop:', err);
+              setTimeout(runRefillLoop, 10000);
+            }
+          };
+          runRefillLoop();
         } else {
           setProfile({ username: currentUser.email?.split('@')[0] || 'Player', avatar_url: '', rank_points: 0, highest_rank_points: 0, global_rank: null, season_id: null });
         }
@@ -235,6 +264,37 @@ export default function ArenaPage() {
     return () => clearTimeout(delayDebounce);
   }, [searchTerm]);
 
+  // Fetch players of the selected rank
+  useEffect(() => {
+    if (!selectedRankForModal) {
+      setPlayersOfSelectedRank([]);
+      return;
+    }
+    
+    async function fetchPlayersOfRank() {
+      setLoadingRankPlayers(true);
+      const r = selectedRankForModal;
+      let query = supabase
+        .from('profiles')
+        .select('id, username, avatar_url, rank_points, updated_at')
+        .gte('rank_points', r.minPoints);
+      
+      if (r.maxPoints !== Infinity) {
+        query = query.lte('rank_points', r.maxPoints);
+      }
+      
+      query = query.order('rank_points', { ascending: false }).order('updated_at', { ascending: true });
+      
+      const { data, error } = await query;
+      if (data) {
+        setPlayersOfSelectedRank(data);
+      }
+      setLoadingRankPlayers(false);
+    }
+    
+    fetchPlayersOfRank();
+  }, [selectedRankForModal]);
+
   const handleStartGame = async (mode: 'ranked' | 'classic') => {
     if (!user) {
       setShowAuthModal(true);
@@ -254,7 +314,7 @@ export default function ArenaPage() {
       const response = await fetch('/api/generate-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPoints: currentPoints, t: Date.now() })
+        body: JSON.stringify({ currentPoints: currentPoints, userId: user?.id, t: Date.now() })
       });
 
       const result = await response.json();
@@ -262,6 +322,7 @@ export default function ArenaPage() {
         throw new Error(result.error || 'Failed to generate quiz');
       }
 
+      setSessionId(result.sessionId);
       setQuestions(result.questions);
       setQuizState('playing');
     } catch (error) {
@@ -275,7 +336,7 @@ export default function ArenaPage() {
     const response = await fetch('/api/generate-classic-quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier, count: 5, t: Date.now() })
+      body: JSON.stringify({ tier, count: 5, userId: user?.id, t: Date.now() })
     });
     const result = await response.json();
     if (!response.ok || !result.questions) {
@@ -575,16 +636,15 @@ export default function ArenaPage() {
 
   if (quizState === 'loading_quiz') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4 text-center space-y-6">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-white p-4 text-center space-y-6 animate-in fade-in duration-300">
         <div className="relative">
-          <div className="absolute inset-0 bg-indigo-500 blur-xl opacity-30 rounded-full animate-pulse"></div>
-          <Loader2 size={64} className="text-indigo-400 animate-spin relative z-10" />
+          <div className="absolute inset-0 bg-indigo-500/20 blur-2xl opacity-50 rounded-full animate-pulse"></div>
+          <Loader2 size={56} className="text-zinc-100 animate-spin relative z-10" />
         </div>
-        <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-gray-100 flex items-center justify-center gap-2">
-            <Sparkles className="text-yellow-400" /> AI Generating Quiz...
+        <div>
+          <h2 className="text-sm font-black text-zinc-400 uppercase tracking-widest animate-pulse">
+            Menyiapkan Pertandingan...
           </h2>
-          <p className="text-gray-400">Menganalisis rank Anda dan menyiapkan arena pertarungan...</p>
         </div>
       </div>
     );
@@ -593,22 +653,19 @@ export default function ArenaPage() {
   if (quizState === 'playing' && quizMode) {
     return (
       <div className="min-h-screen bg-gray-950 text-white pt-8 pb-24 px-4">
-        <div className="max-w-3xl mx-auto mb-8 flex items-center justify-between">
-          <button onClick={() => quizMode === 'classic' ? handleExitClassic() : handleQuizComplete()} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="text-center">
-            <div className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-1">
-              {quizMode === 'ranked' ? 'Ranked Match' : 'Mode Latihan Edukasi'}
-            </div>
-            {quizMode === 'ranked' && (
-              <div className="text-sm font-medium text-gray-400 flex items-center gap-2 justify-center">
-                Target Rank: <span className="text-white font-bold">{profile ? getRankInfo(profile.rank_points).tier : 'Rookie'}</span>
+        {quizMode === 'classic' && (
+          <div className="max-w-3xl mx-auto mb-8 flex items-center justify-between">
+            <button onClick={handleExitClassic} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+            <div className="text-center">
+              <div className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-1">
+                Mode Latihan Edukasi
               </div>
-            )}
+            </div>
+            <div className="w-10"></div>
           </div>
-          <div className="w-10"></div>
-        </div>
+        )}
 
         {quizMode === 'classic' ? (
           <ClassicBoard 
@@ -622,9 +679,11 @@ export default function ArenaPage() {
         ) : (
           <QuizBoard 
             questions={questions} 
+            sessionId={sessionId}
             mode={quizMode} 
             currentPoints={profile?.rank_points || 0} 
             onComplete={handleQuizComplete} 
+            onBack={handleQuizComplete}
           />
         )}
       </div>
@@ -812,7 +871,11 @@ export default function ArenaPage() {
             {/* Desktop View: Vertical List */}
             <div className="hidden md:block divide-y divide-zinc-850 text-[11px]">
               {RANKS.map((r) => (
-                <div key={r.tier} className="flex items-center justify-between py-1.5 first:pt-0 last:pb-0">
+                <div 
+                  key={r.tier} 
+                  onClick={() => setSelectedRankForModal(r)}
+                  className="flex items-center justify-between py-2 px-2 hover:bg-zinc-850 rounded-lg cursor-pointer transition-colors"
+                >
                   <div className="flex items-center gap-1.5 min-w-[90px]">
                     <span className="text-sm">{getRankEmoji(r.tier)}</span>
                     <span className="font-bold text-white text-[10px]">{r.tier}</span>
@@ -832,7 +895,11 @@ export default function ArenaPage() {
             {/* Mobile View: Horizontal Scroll (Ultra Minimalist) */}
             <div className="md:hidden flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
               {RANKS.map((r) => (
-                <div key={r.tier} className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-zinc-800/40 border border-zinc-800/60 min-w-[75px] text-center shrink-0">
+                <div 
+                  key={r.tier} 
+                  onClick={() => setSelectedRankForModal(r)}
+                  className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-zinc-800/40 border border-zinc-800/60 hover:bg-zinc-850 cursor-pointer min-w-[75px] text-center shrink-0 transition-colors"
+                >
                   <span className="text-xs">{getRankEmoji(r.tier)}</span>
                   <span className="font-bold text-white text-[8px] leading-tight mt-0.5">{r.tier}</span>
                   <span className="text-[7px] text-zinc-500 font-mono mt-0.5">
@@ -854,9 +921,9 @@ export default function ArenaPage() {
         </div>
 
         {/* Kolom Kanan: Leaderboard Monokrom (Span 8 col) */}
-        <div className="md:col-span-8 flex flex-col h-[380px] md:h-full flex-1 md:min-h-0 md:overflow-hidden shrink-0 pb-20 md:pb-0">
+        <div className="md:col-span-8 flex flex-col h-[420px] md:h-full flex-1 md:min-h-0 md:overflow-hidden shrink-0 pb-20 md:pb-0 w-full">
           {/* Kontainer Leaderboard */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl overflow-hidden flex flex-col flex-1 h-full min-h-0">
             <Leaderboard />
             
             {/* Sticky Status Bawah */}
@@ -1190,6 +1257,83 @@ export default function ArenaPage() {
             {activeBattleRoom.room_code}
           </span>
         </button>
+      )}
+      {/* Modal for showing players of selected rank */}
+      {selectedRankForModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[80vh] text-zinc-100">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-850">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">{getRankEmoji(selectedRankForModal.tier)}</span>
+                <div>
+                  <h3 className="font-black text-white uppercase tracking-wider text-sm sm:text-base">
+                    Pemain {selectedRankForModal.tier}
+                  </h3>
+                  <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                    Rentang Poin: {selectedRankForModal.maxPoints === Infinity ? `${selectedRankForModal.minPoints}+ XP` : `${selectedRankForModal.minPoints}-${selectedRankForModal.maxPoints} XP`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedRankForModal(null)}
+                className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content List */}
+            <div className="flex-1 overflow-y-auto py-4 min-h-0 custom-scrollbar">
+              {loadingRankPlayers ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="animate-spin text-zinc-500" size={24} />
+                </div>
+              ) : playersOfSelectedRank.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-zinc-500 text-center">
+                  <UserIcon className="opacity-20 mb-2" size={32} />
+                  <p className="text-xs font-semibold">Belum ada pemain di rank ini.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {playersOfSelectedRank.map((player) => (
+                    <div key={player.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-850">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0 border border-zinc-700">
+                          {player.avatar_url ? (
+                            <img src={player.avatar_url} className="w-full h-full object-cover" alt="" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">👤</div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs text-white">{player.username || 'Player'}</div>
+                          <div className="text-[9px] text-zinc-500 mt-0.5">
+                            Dicapai: {new Date(player.updated_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-xs text-white">{player.rank_points}</div>
+                        <div className="text-[8px] text-zinc-500 uppercase font-bold">XP</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-zinc-850 flex justify-end">
+              <button
+                onClick={() => setSelectedRankForModal(null)}
+                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

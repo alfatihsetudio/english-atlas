@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       model: 'gemini-flash-lite-latest',
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
+        temperature: 0.7,
         responseMimeType: 'application/json',
       },
     });

@@ -1,9 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { calculateNewPoints, getRankInfo } from '@/utils/rankSystem';
-import { supabase } from '@/lib/supabase';
-import { CheckCircle2, XCircle, ArrowRight, Trophy, Loader2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowLeft, ArrowRight, Trophy, Loader2, AlertTriangle } from 'lucide-react';
 
 interface Question {
   question: string;
@@ -11,23 +9,37 @@ interface Question {
   option_b: string;
   option_c: string;
   option_d: string;
-  correct_answer: string;
-  explanation: string;
 }
 
 interface QuizBoardProps {
   questions: Question[];
+  sessionId: string;
   mode: 'ranked' | 'classic';
   currentPoints: number;
   onComplete: () => void;
+  onBack?: () => void;
 }
 
-export default function QuizBoard({ questions, mode, currentPoints, onComplete }: QuizBoardProps) {
+function getRankInfo(points: number) {
+  const safePoints = Math.max(0, points);
+  if (safePoints >= 7001) return { tier: 'Immortal', win: 10, lose: -40 };
+  if (safePoints >= 4001) return { tier: 'Advanced', win: 10, lose: -20 };
+  if (safePoints >= 2001) return { tier: 'Intermediate', win: 10, lose: -10 };
+  if (safePoints >= 501) return { tier: 'Elementary', win: 10, lose: -5 };
+  return { tier: 'Rookie', win: 10, lose: 0 };
+}
+
+export default function QuizBoard({ questions, sessionId, mode, currentPoints, onComplete, onBack }: QuizBoardProps) {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<{ correct: number; wrong: number; pointChange: number; newPoints: number } | null>(null);
   const [derankedTier, setDerankedTier] = useState<string | null>(null);
+  const [showResultModal, setShowResultModal] = useState(true);
+
+  // Secure server-provided data retrieved post-submission
+  const [correctAnswers, setCorrectAnswers] = useState<string[]>([]);
+  const [explanations, setExplanations] = useState<string[]>([]);
 
   const handleOptionSelect = (qIndex: number, option: string) => {
     if (isSubmitted) return;
@@ -42,67 +54,42 @@ export default function QuizBoard({ questions, mode, currentPoints, onComplete }
     
     setIsSubmitting(true);
 
-    let correctCount = 0;
-    let wrongCount = 0;
-
-    questions.forEach((q, idx) => {
-      if (answers[idx] === q.correct_answer) {
-        correctCount++;
-      } else {
-        wrongCount++;
-      }
-    });
-
-    let newPoints = currentPoints;
-    let pointChange = 0;
-
-    if (mode === 'ranked') {
-      // Hitung perubahan poin satu per satu sesuai dengan tier saat ini untuk akurasi
-      const oldRank = getRankInfo(currentPoints);
-      
-      let tempPoints = currentPoints;
-      questions.forEach((q, idx) => {
-        const isCorrect = answers[idx] === q.correct_answer;
-        tempPoints = calculateNewPoints(tempPoints, isCorrect);
+    try {
+      const response = await fetch('/api/submit-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          answers
+        })
       });
-      newPoints = tempPoints;
-      pointChange = newPoints - currentPoints;
 
-      const newRank = getRankInfo(newPoints);
-      if (newPoints < currentPoints && newRank.minPoints < oldRank.minPoints) {
-        setDerankedTier(newRank.tier);
+      if (!response.ok) {
+        throw new Error('Gagal mengirimkan kuis.');
       }
 
-      // Update database
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData?.session?.user;
+      const res = await response.json();
+
+      setResult({
+        correct: res.correct,
+        wrong: res.wrong,
+        pointChange: res.pointChange,
+        newPoints: res.newPoints
+      });
+      setDerankedTier(res.derankedTier || null);
+      setCorrectAnswers(res.correctAnswers || []);
+      setExplanations(res.explanations || []);
       
-      if (user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('highest_rank_points')
-          .eq('id', user.id)
-          .single();
-
-        const currentHighest = (profileData as any)?.highest_rank_points || 0;
-        const newHighest = Math.max(currentHighest, newPoints);
-
-        await (supabase.from('profiles') as any)
-          .update({ 
-            rank_points: newPoints,
-            highest_rank_points: newHighest
-          })
-          .eq('id', user.id);
-      }
+      setIsSubmitted(true);
+      setShowResultModal(true);
+    } catch (err: any) {
+      alert(err.message || 'Terjadi kesalahan saat memproses kuis.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setResult({ correct: correctCount, wrong: wrongCount, pointChange, newPoints });
-    setIsSubmitting(false);
-    setIsSubmitted(true);
   };
 
   useEffect(() => {
-    // Attempt to prevent some shortcut keys for screenshot (e.g. PrintScreen, Ctrl+P, Mac shortcuts)
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.key === 'PrintScreen' || 
@@ -127,33 +114,58 @@ export default function QuizBoard({ questions, mode, currentPoints, onComplete }
       onContextMenu={(e) => e.preventDefault()}
     >
       
+      {/* Header Info (Sticky) */}
+      <div className="sticky top-4 z-30 mb-8 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 rounded-3xl p-5 shadow-2xl flex items-center justify-between">
+        {onBack ? (
+          <button onClick={onBack} className="p-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 rounded-xl transition-colors shrink-0 text-zinc-300">
+            <ArrowLeft size={16} />
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
+        
+        <div className="text-center flex-1">
+          <div className="text-zinc-500 font-bold uppercase tracking-widest text-[10px] sm:text-xs mb-1">
+            {mode === 'ranked' ? '🏆 Ranked Match' : '🎮 Practice Match'}
+          </div>
+          {mode === 'ranked' && (
+            <div className="text-base sm:text-lg font-black text-white uppercase tracking-wider flex items-center justify-center gap-2">
+              <span>Current Tier:</span>
+              <span className="text-indigo-400 font-extrabold">{getRankInfo(currentPoints).tier}</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="w-10" />
+      </div>
+
       {/* Pertanyaan */}
       {questions.map((q, idx) => (
-        <div key={idx} className="bg-gray-800 border border-gray-700 rounded-2xl p-6 shadow-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center font-bold">
+        <div key={idx} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl">
+          <div className="flex items-start gap-4 mb-4">
+            <div className="w-8 h-8 bg-zinc-800 text-zinc-300 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 border border-zinc-700">
               {idx + 1}
             </div>
-            <h3 className="font-medium text-lg leading-relaxed">{q.question}</h3>
+            <h3 className="font-bold text-white text-base sm:text-lg leading-relaxed">{q.question}</h3>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
             {['a', 'b', 'c', 'd'].map((opt) => {
-              const optionText = q[`option_${opt}` as keyof Question];
+              const optionText = q[`option_${opt}` as keyof Question] || (q as any)[`option_${opt}`];
               const isSelected = answers[idx] === opt;
-              const isCorrectOpt = q.correct_answer === opt;
+              const isCorrectOpt = isSubmitted && correctAnswers[idx] === opt;
               
-              let styleClass = "border-gray-700 bg-gray-900 hover:bg-gray-700 hover:border-gray-500 text-gray-300";
+              let styleClass = "border-zinc-800 bg-zinc-950 hover:bg-zinc-800 hover:border-zinc-700 text-zinc-300";
               
               if (isSelected && !isSubmitted) {
-                styleClass = "border-indigo-500 bg-indigo-900/40 text-white shadow-inner shadow-indigo-500/20";
+                styleClass = "border-indigo-500 bg-indigo-950/40 text-white shadow-inner shadow-indigo-500/20";
               } else if (isSubmitted) {
                 if (isCorrectOpt) {
-                  styleClass = "border-green-500 bg-green-900/40 text-white";
+                  styleClass = "border-green-500/40 bg-green-950/30 text-green-300";
                 } else if (isSelected && !isCorrectOpt) {
-                  styleClass = "border-red-500 bg-red-900/40 text-white";
+                  styleClass = "border-red-500/40 bg-red-950/30 text-red-300";
                 } else {
-                  styleClass = "border-gray-800 bg-gray-900 text-gray-600 opacity-50";
+                  styleClass = "border-zinc-950 bg-zinc-950/50 text-zinc-600 opacity-50";
                 }
               }
 
@@ -162,18 +174,21 @@ export default function QuizBoard({ questions, mode, currentPoints, onComplete }
                   key={opt}
                   onClick={() => handleOptionSelect(idx, opt)}
                   disabled={isSubmitted}
-                  className={`relative p-4 rounded-xl border-2 text-left transition-all ${styleClass}`}
+                  className={`relative p-4 rounded-2xl border-2 text-left transition-all duration-300 flex items-center gap-3 group font-bold ${styleClass}`}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="uppercase font-bold text-sm opacity-50">{opt}.</span>
-                    <span className="font-medium">{optionText}</span>
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs transition-colors uppercase
+                    ${isSubmitted && isCorrectOpt ? 'bg-green-500 text-zinc-950' : 
+                      isSubmitted && isSelected && !isCorrectOpt ? 'bg-red-500 text-white' : 
+                      'bg-zinc-800 text-zinc-400 group-hover:bg-zinc-700 group-hover:text-white'}`}>
+                    {opt}
                   </div>
+                  <span className="flex-1 text-sm leading-snug">{optionText}</span>
                   
                   {isSubmitted && isCorrectOpt && (
-                    <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={20} />
+                    <CheckCircle2 className="absolute right-4 text-green-500 w-5 h-5 shrink-0" />
                   )}
                   {isSubmitted && isSelected && !isCorrectOpt && (
-                    <XCircle className="absolute right-4 top-1/2 -translate-y-1/2 text-red-500" size={20} />
+                    <XCircle className="absolute right-4 text-red-500 w-5 h-5 shrink-0" />
                   )}
                 </button>
               );
@@ -181,20 +196,20 @@ export default function QuizBoard({ questions, mode, currentPoints, onComplete }
           </div>
 
           {/* Explanation shown after submission */}
-          {isSubmitted && (
-            <div className={`mt-4 p-4 rounded-xl text-sm border ${
-              answers[idx] === q.correct_answer 
-                ? 'bg-green-900/20 border-green-800/50 text-green-200' 
-                : 'bg-red-900/20 border-red-800/50 text-red-200'
+          {isSubmitted && correctAnswers[idx] && (
+            <div className={`mt-4 p-5 rounded-2xl text-xs sm:text-sm border ${
+              answers[idx] === correctAnswers[idx] 
+                ? 'bg-green-950/20 border-green-900/40 text-green-200' 
+                : 'bg-red-950/20 border-red-900/40 text-red-200'
             }`}>
-              <div className="font-bold mb-1 flex items-center gap-2">
-                {answers[idx] === q.correct_answer ? (
-                  <><CheckCircle2 size={16} /> Benar!</>
+              <div className="font-black mb-2 flex items-center gap-2 uppercase tracking-widest text-[10px] sm:text-xs">
+                {answers[idx] === correctAnswers[idx] ? (
+                  <><CheckCircle2 size={16} className="text-green-500" /> JAWABAN BENAR</>
                 ) : (
-                  <><XCircle size={16} /> Salah.</>
+                  <><XCircle size={16} className="text-red-500" /> JAWABAN SALAH</>
                 )}
               </div>
-              <p className="opacity-90 leading-relaxed">{q.explanation}</p>
+              <p className="opacity-90 leading-relaxed font-medium">{explanations[idx]}</p>
             </div>
           )}
         </div>
@@ -206,59 +221,80 @@ export default function QuizBoard({ questions, mode, currentPoints, onComplete }
           <button
             onClick={handleSubmit}
             disabled={!allAnswered || isSubmitting}
-            className={`flex items-center gap-2 px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-indigo-900/50 transition-all ${
+            className={`flex items-center gap-2 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm shadow-xl transition-all duration-300 ${
               allAnswered 
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:scale-105 hover:from-indigo-500 hover:to-purple-500 text-white cursor-pointer' 
-                : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+                ? 'bg-zinc-100 hover:bg-white text-zinc-950 cursor-pointer hover:scale-105 shadow-zinc-900/50' 
+                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
             }`}
           >
             {isSubmitting ? (
-              <><Loader2 className="animate-spin" size={24} /> Menghitung Hasil...</>
+              <><Loader2 className="animate-spin w-4 h-4" /> Memvalidasi...</>
             ) : (
-              <><Trophy size={24} /> Kirim & Lihat Hasil</>
+              <><Trophy size={16} /> Kirim & Lihat Hasil</>
             )}
           </button>
         </div>
       ) : (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-gray-900 border border-gray-700 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-500">
-            <Trophy size={64} className="mx-auto text-yellow-500 mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]" />
-            <h2 className="text-3xl font-bold mb-2 text-white">Selesai!</h2>
-            <div className="flex items-center justify-center gap-4 mb-6 text-gray-300">
-              <span className="flex items-center gap-1"><CheckCircle2 className="text-green-500" size={18} /> {result?.correct} Benar</span>
-              <span className="flex items-center gap-1"><XCircle className="text-red-500" size={18} /> {result?.wrong} Salah</span>
+        !showResultModal && (
+          <div className="sticky bottom-4 z-10 flex justify-center mt-8 p-4">
+            <button
+              onClick={onComplete}
+              className="flex items-center gap-2 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm bg-zinc-100 hover:bg-white text-zinc-950 hover:scale-105 shadow-xl shadow-zinc-900/50 transition-all duration-300"
+            >
+              Selesai Tinjau <ArrowRight size={16} />
+            </button>
+          </div>
+        )
+      )}
+
+      {isSubmitted && showResultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-500">
+            <Trophy size={64} className="mx-auto text-yellow-500 mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.3)]" />
+            <h2 className="text-3xl font-black mb-2 text-white uppercase tracking-wider">Selesai!</h2>
+            <div className="flex items-center justify-center gap-4 mb-6 text-zinc-400 font-bold uppercase tracking-wider text-xs">
+              <span className="flex items-center gap-1"><CheckCircle2 className="text-green-500" size={16} /> {result?.correct} Benar</span>
+              <span className="flex items-center gap-1"><XCircle className="text-red-500" size={16} /> {result?.wrong} Salah</span>
             </div>
             
             {mode === 'ranked' && (
-              <div className="bg-gray-800 rounded-2xl p-4 mb-8">
-                <div className="text-sm text-gray-400 mb-1">Perubahan Poin</div>
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 mb-8">
+                <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Perubahan Poin</div>
                 <div className={`text-3xl font-black ${
                   (result?.pointChange || 0) >= 0 ? 'text-green-400' : 'text-red-400'
                 }`}>
                   {(result?.pointChange || 0) > 0 ? '+' : ''}{result?.pointChange}
                 </div>
-                <div className="text-xs text-indigo-300 mt-2">
+                <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mt-2">
                   Total Poin: {result?.newPoints}
                 </div>
               </div>
             )}
 
             {derankedTier && (
-              <div className="bg-red-950/40 border border-red-800/50 rounded-2xl p-4 mb-8 text-red-200">
+              <div className="bg-red-950/40 border border-red-900/50 rounded-2xl p-4 mb-8 text-red-200">
                 <AlertTriangle size={24} className="mx-auto text-red-500 mb-2" />
-                <h3 className="font-bold text-lg mb-1">Rank Turun!</h3>
-                <p className="text-sm opacity-90">
+                <h3 className="font-black text-sm uppercase tracking-wider mb-1">Rank Turun!</h3>
+                <p className="text-xs opacity-90 leading-relaxed">
                   Anda telah turun ke <strong>{derankedTier}</strong>. Jangan menyerah, ayo raih kembali posisi Anda!
                 </p>
               </div>
             )}
 
-            <button
-              onClick={onComplete}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/30"
-            >
-              Kembali ke Lobi <ArrowRight size={20} />
-            </button>
+            <div className="flex flex-col gap-3 w-full">
+              <button
+                onClick={() => setShowResultModal(false)}
+                className="w-full py-3.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-100 font-bold rounded-xl flex items-center justify-center gap-2 transition-all border border-zinc-800 uppercase tracking-widest text-[10px]"
+              >
+                Tinjau Jawaban
+              </button>
+              <button
+                onClick={onComplete}
+                className="w-full py-3.5 bg-zinc-100 hover:bg-white text-zinc-950 font-black rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-zinc-950/50 uppercase tracking-widest text-[10px]"
+              >
+                Kembali ke Lobi <ArrowRight size={16} />
+              </button>
+            </div>
           </div>
         </div>
       )}

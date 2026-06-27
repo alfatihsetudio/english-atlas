@@ -13,6 +13,10 @@ export async function POST(req: NextRequest) {
 
     const model = genAI.getGenerativeModel({
       model: 'gemini-flash-lite-latest',
+      generationConfig: {
+        temperature: 0.7,
+        responseMimeType: 'application/json'
+      }
     });
 
     const promptText = `Kamu adalah penganalisis grammar. Saya akan memberikan sebuah kalimat. Kamu harus menentukan Tense dari kalimat tersebut, beserta komponen Waktu dan Bentuk dasarnya. Balas **HANYA** dengan objek JSON (tidak boleh ada teks markdown lain, murni JSON) dengan format berikut:

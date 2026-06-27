@@ -6,6 +6,9 @@ import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { Loader2, Trophy, Swords, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { calculateBattlePoints } from '@/utils/rankSystem';
+import dynamic from 'next/dynamic';
+
+const VoiceChat = dynamic(() => import('@/components/VoiceChat'), { ssr: false });
 
 interface QuizQuestion {
   question: string;
@@ -523,7 +526,10 @@ export default function BattlePlayPage() {
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5">
             <span>Room: {roomCode}</span>
-            <span>Soal {currentQuestionIdx + 1} / {questions.length}</span>
+            <div className="flex items-center gap-3">
+              <span>Soal {currentQuestionIdx + 1} / {questions.length}</span>
+              <VoiceChat channelName={roomCode} />
+            </div>
           </div>
           
           <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">

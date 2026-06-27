@@ -1,4 +1,5 @@
 import { Handle, Position, NodeProps } from 'reactflow';
+import { GRAMMAR_FORMULAS } from '@/lib/grammarData';
 
 export default function CustomNode({ data }: NodeProps) {
   let bgColor = 'bg-white';
@@ -21,9 +22,10 @@ export default function CustomNode({ data }: NodeProps) {
     textColor = 'text-white';
   }
 
+  const standardFormula = GRAMMAR_FORMULAS[data.label];
   const hasLegacyContent = !!(data.formula || data.example);
   const hasNewContent = !!(data.verbal_formula || data.nominal_formula || data.pos_form || data.neg_form || data.int_form);
-  const hasExtraContent = hasLegacyContent || hasNewContent;
+  const hasExtraContent = !!standardFormula || hasLegacyContent || hasNewContent;
 
   return (
     <div className={`p-3 shadow-lg rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} w-[300px] text-left relative`}>
@@ -43,7 +45,29 @@ export default function CustomNode({ data }: NodeProps) {
         <>
           <hr className={`my-1.5 ${category === 'root' ? 'border-white/20' : 'border-black/10'}`} />
           
-          {hasNewContent ? (
+          {standardFormula ? (
+            <div className="flex flex-col gap-1 mt-1.5 w-full">
+              {/* Verbal Section */}
+              <div className="flex flex-col gap-0.5 w-full">
+                <div className={`text-[8px] font-bold uppercase tracking-wider ${category === 'root' ? 'text-indigo-300' : 'text-indigo-600'}`}>Verbal Form</div>
+                <div className={`text-[8.5px] font-mono p-1.5 rounded space-y-1 ${category === 'root' ? 'bg-white/10' : 'bg-black/5'}`}>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-green-400' : 'text-green-600'}`}>(+)</span> {standardFormula.verbal.positive}</div>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-red-400' : 'text-red-500'}`}>(-)</span> {standardFormula.verbal.negative}</div>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-blue-400' : 'text-blue-600'}`}>(?)</span> {standardFormula.verbal.interrogative}</div>
+                </div>
+              </div>
+              
+              {/* Nominal Section */}
+              <div className="flex flex-col gap-0.5 w-full mt-1.5">
+                <div className={`text-[8px] font-bold uppercase tracking-wider ${category === 'root' ? 'text-teal-300' : 'text-teal-600'}`}>Nominal Form</div>
+                <div className={`text-[8.5px] font-mono p-1.5 rounded space-y-1 ${category === 'root' ? 'bg-white/10' : 'bg-black/5'}`}>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-green-400' : 'text-green-600'}`}>(+)</span> {standardFormula.nominal.positive}</div>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-red-400' : 'text-red-500'}`}>(-)</span> {standardFormula.nominal.negative}</div>
+                  <div><span className={`font-bold ${category === 'root' ? 'text-blue-400' : 'text-blue-600'}`}>(?)</span> {standardFormula.nominal.interrogative}</div>
+                </div>
+              </div>
+            </div>
+          ) : hasNewContent ? (
             <div className="flex flex-col gap-1.5 mt-1.5">
               {(data.verbal_formula || data.nominal_formula) && (
                 <div className="flex flex-col gap-1 text-[10px] leading-tight">

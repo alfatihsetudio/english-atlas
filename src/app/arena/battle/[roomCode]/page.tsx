@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { ArrowLeft, Users, Play, CheckCircle2, Clock, Search, Loader2, X } from 'lucide-react';
 import { getRankInfo } from '@/utils/rankSystem';
+import dynamic from 'next/dynamic';
+
+const VoiceChat = dynamic(() => import('@/components/VoiceChat'), { ssr: false });
 
 export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode: string }> }) {
   const router = useRouter();
@@ -334,10 +337,10 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
   const allReady = participants.length > 1 && participants.filter(p => p.user_id !== room?.host_id).every(p => p.is_ready);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-4 flex flex-col items-center">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-4 flex flex-col items-center pb-28">
       
       {/* Navbar Minimalis */}
-      <div className="w-full max-w-5xl flex items-center justify-between mb-4">
+      <div className="w-full max-w-5xl flex items-center justify-between gap-2 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
           <button 
             onClick={handleLeaveRoom} 
@@ -350,26 +353,26 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
             <button
               onClick={handleCancelRoom}
               disabled={isCanceling}
-              className="flex items-center gap-1.5 px-3 py-2 bg-red-950/50 hover:bg-red-900/50 border border-red-900 text-red-400 hover:text-red-300 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/50 hover:bg-red-900/50 border border-red-900 text-red-400 hover:text-red-300 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors shrink-0"
             >
               {isCanceling ? <div className="animate-spin w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full" /> : <X size={12} />}
-              Batalkan Room
+              <span>Batalkan Room</span>
             </button>
           ) : (
             <button
               onClick={handleQuitRoom}
-              className="flex items-center gap-1.5 px-3 py-2 bg-red-950/50 hover:bg-red-900/50 border border-red-900 text-red-400 hover:text-red-300 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/50 hover:bg-red-900/50 border border-red-900 text-red-400 hover:text-red-300 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors shrink-0"
               title="Keluar secara permanen dari room ini"
             >
               <X size={12} />
-              Keluar Room
+              <span>Keluar Room</span>
             </button>
           )}
         </div>
-        <h1 className="text-sm font-bold text-white tracking-widest uppercase flex items-center gap-2">
+        <h1 className="hidden md:flex text-sm font-bold text-white tracking-widest uppercase items-center gap-2">
           <Users size={16} /> Battle Arena
         </h1>
-        <div className="w-10"></div>
+        <VoiceChat channelName={roomCode} />
       </div>
 
       {/* Main Container */}
@@ -389,25 +392,31 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
             {/* Difficulty Selector */}
             <div className="w-full flex flex-col gap-2 max-w-4xl">
               <span className="text-xs text-zinc-500 font-bold uppercase tracking-wider text-center">Pilih Kategori Soal:</span>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {difficulties.map(diff => (
-                  <button
-                    key={diff.id}
-                    onClick={() => handleChangeDifficulty(diff.id)}
-                    className={`text-left p-4 rounded-xl border transition-all ${
-                      room?.difficulty === diff.id || (!room?.difficulty && diff.id === 'Tier 1: Foundation (Easy)')
-                        ? 'bg-zinc-800 border-zinc-500 shadow-md'
-                        : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-[10px] font-black uppercase tracking-widest ${room?.difficulty === diff.id || (!room?.difficulty && diff.id === 'Tier 1: Foundation (Easy)') ? 'text-white' : 'text-zinc-500'}`}>{diff.tier}</span>
-                      {(room?.difficulty === diff.id || (!room?.difficulty && diff.id === 'Tier 1: Foundation (Easy)')) && <CheckCircle2 size={14} className="text-white" />}
-                    </div>
-                    <h3 className={`text-sm font-bold mb-1.5 ${room?.difficulty === diff.id || (!room?.difficulty && diff.id === 'Tier 1: Foundation (Easy)') ? 'text-white' : 'text-zinc-300'}`}>{diff.label}</h3>
-                    <p className="text-xs text-zinc-500 leading-snug hidden sm:block">{diff.desc}</p>
-                  </button>
-                ))}
+              <div className="flex flex-col md:grid md:grid-cols-3 gap-2 w-full">
+                {difficulties.map(diff => {
+                  const isSelected = room?.difficulty === diff.id || (!room?.difficulty && diff.id === 'Tier 1: Foundation (Easy)');
+                  return (
+                    <button
+                      key={diff.id}
+                      onClick={() => handleChangeDifficulty(diff.id)}
+                      className={`relative text-left px-4 py-3 md:p-4 rounded-xl border transition-all flex flex-row md:flex-col items-center md:items-start justify-between ${
+                        isSelected
+                          ? 'bg-zinc-800 border-zinc-500 shadow-md'
+                          : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="flex flex-col md:w-full">
+                        <div className="flex items-center gap-1.5 mb-0 md:mb-1">
+                          <span className={`text-[10px] font-black uppercase tracking-widest ${isSelected ? 'text-white' : 'text-zinc-500'}`}>{diff.tier}</span>
+                          <span className={`md:hidden text-xs font-bold ${isSelected ? 'text-zinc-200' : 'text-zinc-400'}`}>- {diff.label}</span>
+                        </div>
+                        <h3 className={`hidden md:block text-sm font-bold mb-1.5 ${isSelected ? 'text-white' : 'text-zinc-300'}`}>{diff.label}</h3>
+                        <p className="text-xs text-zinc-500 leading-snug hidden md:block">{diff.desc}</p>
+                      </div>
+                      {isSelected && <CheckCircle2 size={16} className="text-white shrink-0 ml-2 md:absolute md:top-4 md:right-4" />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -444,7 +453,7 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
         )}
 
         {/* Grid Pemain */}
-        <div className={`w-full grid gap-3 mt-2 max-w-5xl ${
+        <div className={`w-full grid gap-2 mt-2 max-w-5xl ${
           (room?.max_players || 4) > 16 ? 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8' :
           (room?.max_players || 4) > 8 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' :
           'grid-cols-2 md:grid-cols-4'
@@ -456,27 +465,27 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
             if (player && player.profiles) {
               const rankTier = getRankInfo(player.profiles.rank_points || 0).tier;
               return (
-                <div key={player.user_id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col items-center relative overflow-hidden group shadow-md min-h-[160px]">
+                <div key={player.user_id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex flex-col items-center relative overflow-hidden group shadow-md min-h-[130px]">
                   {isPlayerHost && (
                     <div className="absolute top-0 left-0 w-full bg-zinc-800 text-[9px] text-zinc-400 font-bold text-center py-0.5 tracking-widest">HOST</div>
                   )}
-                  <div className={`w-14 h-14 rounded-full border-2 ${player.is_ready ? 'border-green-500/50' : 'border-zinc-700'} bg-zinc-800 flex items-center justify-center text-xl overflow-hidden mt-3 mb-3 shadow-inner transition-colors`}>
+                  <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 ${player.is_ready ? 'border-green-500/50' : 'border-zinc-700'} bg-zinc-800 flex items-center justify-center text-xl overflow-hidden mt-2 mb-2 shadow-inner transition-colors`}>
                     {player.profiles.avatar_url ? (
                       <img src={player.profiles.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
                       <span>👤</span>
                     )}
                   </div>
-                  <h3 className="text-sm font-bold text-white truncate w-full text-center">{player.profiles.username}</h3>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">{rankTier}</p>
+                  <h3 className="text-xs md:text-sm font-bold text-white truncate w-full text-center">{player.profiles.username}</h3>
+                  <p className="text-[9px] text-zinc-500 uppercase tracking-wider mb-2">{rankTier}</p>
                   
                   {isPlayerHost ? (
-                    <div className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold mt-auto">
-                      👑 <span className="uppercase tracking-widest">Lobby Master</span>
+                    <div className="flex items-center gap-1 text-zinc-400 text-[10px] md:text-xs font-bold mt-auto">
+                      👑 <span className="uppercase tracking-widest">Master</span>
                     </div>
                   ) : (
-                    <div className={`flex items-center gap-1 text-xs font-bold uppercase tracking-widest mt-auto ${player.is_ready ? 'text-green-500' : 'text-zinc-500'}`}>
-                      {player.is_ready ? <><CheckCircle2 size={14}/> READY</> : <><Clock size={14}/> WAITING</>}
+                    <div className={`flex items-center gap-1 text-[10px] md:text-xs font-bold uppercase tracking-widest mt-auto ${player.is_ready ? 'text-green-500' : 'text-zinc-500'}`}>
+                      {player.is_ready ? <><CheckCircle2 size={12}/> READY</> : <><Clock size={12}/> WAITING</>}
                     </div>
                   )}
                 </div>
@@ -485,9 +494,9 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
 
             // Slot Kosong
             return (
-              <div key={`empty-${index}`} className={`border-2 border-dashed border-zinc-800/50 rounded-xl p-2 sm:p-4 flex flex-col items-center justify-center min-h-[120px] sm:min-h-[160px] hover:border-zinc-700 transition-colors group`}>
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-dashed border-zinc-700 flex items-center justify-center mb-2 sm:mb-3 group-hover:border-zinc-500 transition-colors">
-                  <Users size={16} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+              <div key={`empty-${index}`} className={`border-2 border-dashed border-zinc-800/50 rounded-xl p-2 sm:p-3 flex flex-col items-center justify-center min-h-[130px] hover:border-zinc-700 transition-colors group`}>
+                <div className="w-10 h-10 rounded-full border-2 border-dashed border-zinc-700 flex items-center justify-center mb-2 group-hover:border-zinc-500 transition-colors">
+                  <Users size={14} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
                 </div>
                 {isHost ? (
                   <button 
@@ -495,12 +504,12 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
                       setInvitedUserIds([]);
                       setShowSearchModal(true);
                     }} 
-                    className="mt-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors"
+                    className="mt-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-2 sm:px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider transition-colors"
                   >
                     + Invite Lawan
                   </button>
                 ) : (
-                  <p className="text-[8px] sm:text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center mt-1">Menunggu<br/>Penantang...</p>
+                  <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest text-center mt-1">Menunggu<br/>Penantang...</p>
                 )}
               </div>
             );
@@ -510,44 +519,46 @@ export default function BattleLobbyPage({ params }: { params: Promise<{ roomCode
       </div>
 
       {/* Action Buttons */}
-      <div className="w-full max-w-5xl mt-8 mb-6">
-        {isHost ? (
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onClick={handleStartBattle}
-              disabled={!allReady || isStarting}
-              className="w-full max-w-md flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 rounded-xl py-3.5 text-sm font-black uppercase tracking-widest transition-all shadow-md"
-            >
-              {isStarting ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" />
-                  Menyusun mantra pertarungan...
-                </>
-              ) : (
-                <>
-                  <Play size={18} /> START BATTLE
-                </>
+      <div className="fixed bottom-0 left-0 w-full p-4 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent z-40 flex justify-center border-t border-zinc-800/30 backdrop-blur-sm">
+        <div className="w-full max-w-5xl">
+          {isHost ? (
+            <div className="flex flex-col items-center gap-2">
+              <button
+                onClick={handleStartBattle}
+                disabled={!allReady || isStarting}
+                className="w-full max-w-xs flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 rounded-xl py-2.5 text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] disabled:shadow-none"
+              >
+                {isStarting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Memulai...
+                  </>
+                ) : (
+                  <>
+                    <Play size={16} /> START BATTLE
+                  </>
+                )}
+              </button>
+              {!allReady && participants.length > 1 && (
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Semua pemain harus ready</p>
               )}
+              {participants.length <= 1 && (
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Butuh minimal 1 lawan</p>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={handleToggleReady}
+              className={`w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-black uppercase tracking-widest transition-all shadow-md border ${
+                myParticipant?.is_ready 
+                  ? 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800' 
+                  : 'bg-zinc-100 border-white text-zinc-950 hover:bg-white shadow-[0_0_20px_rgba(255,255,255,0.1)]'
+              }`}
+            >
+              {myParticipant?.is_ready ? 'BATAL READY' : 'READY!'}
             </button>
-            {!allReady && participants.length > 1 && (
-              <p className="text-xs text-zinc-500 uppercase tracking-widest">Menunggu semua pemain siap</p>
-            )}
-            {participants.length <= 1 && (
-              <p className="text-xs text-zinc-500 uppercase tracking-widest">Butuh minimal 1 lawan</p>
-            )}
-          </div>
-        ) : (
-          <button
-            onClick={handleToggleReady}
-            className={`w-full max-w-md mx-auto flex items-center justify-center gap-2 rounded-lg py-3 text-sm font-black uppercase tracking-widest transition-all shadow-md border ${
-              myParticipant?.is_ready 
-                ? 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800' 
-                : 'bg-zinc-100 border-white text-zinc-950 hover:bg-white'
-            }`}
-          >
-            {myParticipant?.is_ready ? 'BATAL READY' : 'READY!'}
-          </button>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Search Modal */}

@@ -498,14 +498,7 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
               >
                 <Trash2 size={15} />
               </button>
-              {/* Minimize only visible on desktop */}
-              <button
-                onClick={() => setIsMinimized(!isMinimized)}
-                className="hidden md:block p-1.5 rounded-lg hover:bg-white/20 transition-colors"
-                title={isMinimized ? 'Maximize' : 'Minimize'}
-              >
-                {isMinimized ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
-              </button>
+
             </div>
           </div>
 
@@ -735,12 +728,6 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
           </>
         )}
 
-        {/* Unread badge */}
-        {hasUnread && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-            !
-          </span>
-        )}
 
         {/* Pulse ring */}
         {!isOpen && (

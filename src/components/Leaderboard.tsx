@@ -13,7 +13,7 @@ interface PlayerProfile {
 }
 
 export default function Leaderboard() {
-  const [filter, setFilter] = useState<'100' | '500' | '1000'>('100');
+  const [filter, setFilter] = useState<'10' | '50' | '100'>('10');
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,32 +25,13 @@ export default function Leaderboard() {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, username, avatar_url, rank_points')
+        .gt('rank_points', 0)
         .order('rank_points', { ascending: false })
         .limit(limit);
 
       let fetchedPlayers: PlayerProfile[] = data || [];
 
-      // If we don't have enough data (less than 3), let's append dummy data for UI testing
-      if (fetchedPlayers.length < 3) {
-        const dummyPlayers: PlayerProfile[] = [
-          { id: 'd1', username: 'AtlasChampion', avatar_url: null, rank_points: 6200 },
-          { id: 'd2', username: 'GrammarMaster', avatar_url: null, rank_points: 4100 },
-          { id: 'd3', username: 'EnglishPro', avatar_url: null, rank_points: 3050 },
-          { id: 'd4', username: 'NewbieLearner', avatar_url: null, rank_points: 800 },
-        ];
-        
-        const existingIds = new Set(fetchedPlayers.map(p => p.id));
-        for (const dp of dummyPlayers) {
-          if (!existingIds.has(dp.id)) {
-            fetchedPlayers.push(dp);
-          }
-        }
-        
-        // Re-sort after adding dummy
-        fetchedPlayers.sort((a, b) => b.rank_points - a.rank_points);
-      }
-
-      setPlayers(fetchedPlayers.slice(0, limit));
+      setPlayers(fetchedPlayers);
       setLoading(false);
     }
 
@@ -58,7 +39,7 @@ export default function Leaderboard() {
   }, [filter]);
 
   return (
-    <div className="flex flex-col flex-1 w-full min-h-0">
+    <div className="flex flex-col h-full flex-1 w-full min-h-0 relative">
       {/* Header & Tabs */}
       <div className="p-3 sm:p-6 border-b border-zinc-800 flex flex-row items-center justify-between gap-2">
         <h3 className="font-bold text-sm sm:text-lg text-white flex items-center gap-1.5 shrink-0">
@@ -68,7 +49,7 @@ export default function Leaderboard() {
         
         <div className="flex items-center gap-1">
           <div className="flex gap-0.5 p-0.5 bg-zinc-950 rounded-full border border-zinc-800">
-            {(['100', '500', '1000'] as const).map((tab) => (
+            {(['10', '50', '100'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setFilter(tab)}
@@ -86,10 +67,16 @@ export default function Leaderboard() {
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-transparent">
+      <div className="flex-1 overflow-y-auto h-0 w-full custom-scrollbar bg-transparent -webkit-overflow-scrolling-touch">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="animate-spin w-8 h-8 border-4 border-zinc-500 border-t-transparent rounded-full"></div>
+          </div>
+        ) : players.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
+            <Trophy className="opacity-20 mb-3" size={36} />
+            <p className="text-xs font-bold uppercase tracking-wider">Belum ada data peringkat</p>
+            <p className="text-[10px] text-zinc-600 mt-1">Mulai mainkan Mode Ranked untuk masuk ke papan skor!</p>
           </div>
         ) : (
           <div className="flex flex-col">

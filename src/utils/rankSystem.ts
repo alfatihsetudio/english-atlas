@@ -14,11 +14,11 @@ export interface RankInfo {
 }
 
 export const RANKS: RankInfo[] = [
-  { tier: 'Rookie', minPoints: 0, maxPoints: 200, winPoints: 20, losePoints: 0 },
-  { tier: 'Elementary', minPoints: 201, maxPoints: 500, winPoints: 10, losePoints: 0 },
-  { tier: 'Intermediate', minPoints: 501, maxPoints: 1000, winPoints: 10, losePoints: -5 },
-  { tier: 'Advanced', minPoints: 1001, maxPoints: 2000, winPoints: 4, losePoints: -2 },
-  { tier: 'Immortal', minPoints: 2001, maxPoints: Infinity, winPoints: 1, losePoints: -2 },
+  { tier: 'Rookie', minPoints: 0, maxPoints: 500, winPoints: 10, losePoints: 0 },
+  { tier: 'Elementary', minPoints: 501, maxPoints: 2000, winPoints: 10, losePoints: -5 },
+  { tier: 'Intermediate', minPoints: 2001, maxPoints: 4000, winPoints: 10, losePoints: -10 },
+  { tier: 'Advanced', minPoints: 4001, maxPoints: 7000, winPoints: 10, losePoints: -20 },
+  { tier: 'Immortal', minPoints: 7001, maxPoints: Infinity, winPoints: 10, losePoints: -40 },
 ];
 
 export function getRankInfo(points: number): RankInfo {

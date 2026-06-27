@@ -1,38 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: NextRequest) {
   try {
-    const { currentPoints, count, difficulty } = await req.json();
+    const { currentPoints, count, difficulty, userId } = await req.json();
 
     if (currentPoints === undefined || typeof currentPoints !== 'number') {
       return NextResponse.json({ error: 'currentPoints is required and must be a number' }, { status: 400 });
     }
 
-    let focusArea = '';
-    let aiPrompt = '';
-    
-    // Adaptive mapping
-    let tierLevel = 1;
-    if (currentPoints >= 2001) tierLevel = 5;
-    else if (currentPoints >= 1001) tierLevel = 4;
-    else if (currentPoints >= 501) tierLevel = 3;
-    else if (currentPoints >= 201) tierLevel = 2;
+    const questionCount = typeof count === 'number' ? count : 5;
 
-    // Check for Battle Mode specific difficulty first
-    if (difficulty === 'Tier 1: Foundation (Easy)') {
-      focusArea = 'Fokus pada Materi dasar: Tenses dasar (Present/Past), Artikel, & Kosakata sehari-hari.';
-      aiPrompt = 'Gunakan kalimat pendek dan sederhana. Kosa kata dasar. Gramatika jelas.';
-    } else if (difficulty === 'Tier 2: Intermediate (Medium)') {
-      focusArea = 'Fokus pada Materi menengah: Conditional Sentences, Passive Voice, & Perfect Tenses.';
-      aiPrompt = 'Gunakan kalimat dengan 1-2 klausa. Kosa kata menengah. Ada sedikit pengecoh.';
-    } else if (difficulty === 'Tier 3: Advanced (Hard)') {
-      focusArea = 'Fokus pada Materi kompleks: Inversion, Subjunctive, & Advanced Relative Clauses.';
-      aiPrompt = 'Gunakan kalimat panjang dan kompleks. Kosa kata akademik/tingkat lanjut. Fokus pada jebakan grammar tingkat tinggi (Inversion, Subjunctive, dll).';
+    // Determine tier level matching updated rank system ranges
+    let tierLevel = 1;
+    if (currentPoints >= 7001) tierLevel = 5;
+    else if (currentPoints >= 4001) tierLevel = 4;
+    else if (currentPoints >= 2001) tierLevel = 3;
+    else if (currentPoints >= 501) tierLevel = 2;
+
+    console.log(`[Generate Quiz API] Mode: ranked, Tier: ${tierLevel}, User: ${userId || 'anonymous'}`);
+
+    // Try fetching from the pre-generated pool first
+    let dbQuery = supabase
+      .from('pregenerated_questions')
+      .select('*')
+      .eq('mode', 'ranked')
+      .eq('tier', tierLevel)
+      .eq('is_used', false);
+
+    if (userId) {
+      dbQuery = dbQuery.eq('user_id', userId);
     } else {
-      // Adaptive Difficulty Logic based on Points
+      dbQuery = dbQuery.is('user_id', null);
+    }
+
+    const { data: dbQuestions, error: fetchError } = await dbQuery.limit(questionCount);
+
+    let finalQuestions: any[] = [];
+    let isFromPool = false;
+
+    if (!fetchError && dbQuestions && dbQuestions.length === questionCount) {
+      finalQuestions = dbQuestions;
+      isFromPool = true;
+
+      // Mark fetched questions as used
+      const questionIds = dbQuestions.map(q => q.id);
+      await supabase
+        .from('pregenerated_questions')
+        .update({ is_used: true })
+        .in('id', questionIds);
+
+      console.log(`[Generate Quiz API] Served ${questionCount} questions from DB pool.`);
+    } else {
+      console.log(`[Generate Quiz API] DB pool insufficient (found ${dbQuestions?.length || 0}/${questionCount}). Falling back to live Gemini generation.`);
+      
+      // Fallback: Generate live using Gemini
+      let focusArea = '';
+      let aiPrompt = '';
+
       if (tierLevel === 1) {
         focusArea = 'Fokus pada Basic Tenses (Present, Past), Articles (a/an/the), dan Singular/Plural.';
         aiPrompt = 'Gunakan kalimat pendek dan sederhana. Kosa kata dasar. Gramatika jelas.';
@@ -46,43 +78,46 @@ export async function POST(req: NextRequest) {
         focusArea = 'Fokus pada Mixed Conditionals, Relative Clauses, dan Advanced Modals.';
         aiPrompt = 'Gunakan kalimat panjang dengan klausa anak. Kosa kata akademik/sulit. Struktur kalimat kompleks.';
       } else if (tierLevel === 5) {
-        focusArea = 'Fokus pada Inversion, Subjunctive, dan struktur kalimat yang sangat kompleks/menjebak.';
-        aiPrompt = 'Gunakan kalimat sangat panjang/paragraf pendek. Kosa kata GRE/TOEFL tingkat dewa. Fokus pada pengecualian aturan grammar, Inversion, dan Subjunctive. Beri jebakan yang mematikan.';
+        focusArea = 'Fokus pada Advanced Inversion, Subjunctive, dan Mixed Conditionals.';
+        aiPrompt = 'Gunakan kalimat kompleks standar akademik IELTS (Band 7-9). Kosakata tingkat lanjut yang tepat guna. Fokus pada penerapan grammar tingkat tinggi dan berikan pilihan pengecoh yang kuat.';
       }
-    }
 
-    const questionCount = typeof count === 'number' ? count : 5;
+      // Check for Battle Mode specific difficulty override
+      if (difficulty === 'Tier 1: Foundation (Easy)') {
+        focusArea = 'Fokus pada Materi dasar: Tenses dasar (Present/Past), Artikel, & Kosakata sehari-hari.';
+        aiPrompt = 'Gunakan kalimat pendek dan sederhana. Kosa kata dasar. Gramatika jelas.';
+      } else if (difficulty === 'Tier 2: Intermediate (Medium)') {
+        focusArea = 'Fokus pada Materi menengah: Conditional Sentences, Passive Voice, & Perfect Tenses.';
+        aiPrompt = 'Gunakan kalimat dengan 1-2 klausa. Kosa kata menengah. Ada sedikit pengecoh.';
+      } else if (difficulty === 'Tier 3: Elite (Hard)') {
+        focusArea = 'Fokus pada Materi lanjutan: Advanced Modals, Subjunctive Mood, & Inversion.';
+        aiPrompt = 'Gunakan kalimat panjang/kompleks. Kosa kata tingkat tinggi (TOEFL/IELTS). Pengecoh kuat.';
+      }
 
-    const topics = ['Astronomi & Tata Surya', 'Bisnis & Pasar Global', 'Sejarah Peradaban Kuno', 'Budaya Populer & Hiburan', 'Lingkungan & Konservasi Alam', 'Kesehatan & Medis', 'Kecerdasan Buatan & Robotika', 'Psikologi Manusia', 'Seni Klasik & Sastra', 'Olahraga Ekstrem', 'Pariwisata Tersembunyi', 'Hukum & Keadilan', 'Evolusi Biologi', 'Arsitektur Megah', 'Mitos & Legenda Lokal', 'Penjelajahan Laut Dalam', 'Sistem Transportasi Masa Depan', 'Kuliner Tradisional Dunia'];
-    const randomTopic = topics[Math.floor(Math.random() * topics.length)];
+      const topics = ['Astronomi & Tata Surya', 'Bisnis & Pasar Global', 'Sejarah Peradaban Kuno', 'Budaya Populer & Hiburan', 'Lingkungan & Konservasi Alam', 'Kesehatan & Medis', 'Kecerdasan Buatan & Robotika', 'Psikologi Manusia', 'Seni Klasik & Sastra', 'Olahraga Ekstrem', 'Pariwisata Tersembunyi', 'Hukum & Keadilan', 'Evolusi Biologi', 'Arsitektur Megah', 'Mitos & Legenda Lokal', 'Penjelajahan Laut Dalam', 'Sistem Transportasi Masa Depan', 'Kuliner Tradisional Dunia'];
+      const randomTopic = topics[Math.floor(Math.random() * topics.length)];
 
-    const prompt = `Kamu adalah Professor Bahasa Inggris yang sangat teliti.
+      const prompt = `Kamu adalah Professor Bahasa Inggris yang sangat teliti.
 Buatlah tepat ${questionCount} soal bahasa Inggris (pilihan ganda) yang menantang.
 Target Difficulty Tier: ${tierLevel}
-
-Instruksi Kesulitan AI:
-${aiPrompt}
+Fokus Area: ${focusArea}
+Gaya Kalimat: ${aiPrompt}
 
 Instruksi Konteks:
-- Fokus Materi: ${focusArea}
 - Wajib membuat konteks/topik kalimat HANYA seputar: **${randomTopic}**
 - Pastikan kalimat yang dibuat SANGAT BERVARIASI dan TIDAK SAMA dengan soal-soal sebelumnya. Gunakan kosakata yang kaya terkait topik tersebut.
 
 ATURAN MUTLAK SISTEM (WAJIB DIPATUHI):
 1. KEAKURATAN TATA BAHASA MUTLAK (ZERO ERRORS):
    Sebelum mengembalikan data, kamu WAJIB memverifikasi ulang logika grammarmu.
-   Contoh: Jika kamu membuat soal tentang Articles (a/an/the) dan titik-titik berada sebelum kata sifat berawalan konsonan (misal: "___ talented accountant"), jawaban mutlak harus "a" (bukan "an"). Jangan membuat logika grammar yang saling bertentangan secara akademik.
-
 2. DILARANG KERAS MELAKUKAN SELF-CORRECTION DI PENJELASAN:
    Penjelasan di dalam "explanation" harus LANGSUNG pada intinya, faktual, dan otoritatif.
-   DILARANG KERAS menggunakan kata-kata proses berpikir seperti "Tunggu", "Koreksi", "Mari kita lihat", "Sebenarnya", atau meralat dirimu sendiri di dalam teks keluaran. Tulis penjelasan yang sudah pasti benar sejak awal.
-
 3. VALIDASI KUNCI JAWABAN & BEDAH OPSI:
    - Pastikan kamu meletakkan satu-satunya jawaban yang benar di field "correct_answer" (harus berisi "a", "b", "c", atau "d").
-   - Penjelasan di dalam "explanation" harus selaras dan tidak bertentangan dengan kunci jawaban yang dipilih.
-
 4. FORMAT STRICT JSON MURNI:
    Kamu hanya boleh merespons dalam format JSON murni berupa array berisi objek tanpa ada teks pembuka, penutup, markdown, atau basa-basi apa pun.
+5. BAHASA PENJELASAN (EXPLANATION LANGUAGE):
+   Penjelasan di dalam field "explanation" WAJIB ditulis dalam Bahasa Indonesia yang baik, terstruktur, dan mudah dipahami. Jelaskan dengan singkat namun jelas mengapa jawaban tersebut benar dan opsi lainnya kurang tepat.
 
 Struktur Output JSON yang Wajib Diikuti:
 [
@@ -97,47 +132,93 @@ Struktur Output JSON yang Wajib Diikuti:
   }
 ]`;
 
-    const maxRetries = 3;
-    let lastError = null;
-    let parsed: any[] = [];
+      const maxRetries = 3;
+      let lastError = null;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const model = genAI.getGenerativeModel({
-          model: 'gemini-flash-lite-latest',
-          generationConfig: { temperature: 0.9, topK: 40, maxOutputTokens: 8192, responseMimeType: "application/json" }
-        });
-        
-        const result = await model.generateContent(prompt);
-        let rawText = result.response.text().trim();
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: 'gemini-flash-lite-latest',
+            generationConfig: { temperature: 0.7, topK: 40, maxOutputTokens: 8192, responseMimeType: "application/json" }
+          });
+          
+          const result = await model.generateContent(prompt);
+          let rawText = result.response.text().trim();
 
-        // Extract JSON array using regex to handle chatty AI
-        const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          rawText = jsonMatch[0];
+          // Robustly extract JSON array between outermost brackets
+          const startIndex = rawText.indexOf('[');
+          const endIndex = rawText.lastIndexOf(']');
+          if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+            rawText = rawText.substring(startIndex, endIndex + 1);
+          }
+
+          const parsed = JSON.parse(rawText);
+
+          if (Array.isArray(parsed) && parsed.length === questionCount) {
+            finalQuestions = parsed;
+            break;
+          } else {
+            throw new Error('Data soal kosong atau jumlah tidak cocok.');
+          }
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`[Generate Quiz API] Live attempt ${attempt} failed:`, e.message || e);
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
         }
+      }
 
-        parsed = JSON.parse(rawText);
-
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return NextResponse.json({ questions: parsed });
-        } else {
-          throw new Error('Data soal kosong.');
-        }
-
-      } catch (e: any) {
-        lastError = e;
-        console.warn(`[Generate Quiz API] Attempt ${attempt} failed:`, e.message || e);
-        
-        if (attempt < maxRetries) {
-          // Wait for 1.5 seconds before retrying
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
+      if (finalQuestions.length === 0) {
+        console.error('[Generate Quiz API] All attempts failed. Last Error:', lastError);
+        return NextResponse.json({ error: 'Gagal menghasilkan soal setelah beberapa percobaan. Silakan coba lagi.' }, { status: 500 });
       }
     }
 
-    console.error('[Generate Quiz API] All attempts failed. Last Error:', lastError);
-    return NextResponse.json({ error: 'Gagal menghasilkan soal setelah beberapa percobaan. Silakan coba lagi.' }, { status: 500 });
+    // 4. Create secure quiz session record
+    const clientQuestions = finalQuestions.map(q => ({
+      question: q.question,
+      option_a: q.option_a || q.a || '',
+      option_b: q.option_b || q.b || '',
+      option_c: q.option_c || q.c || '',
+      option_d: q.option_d || q.d || ''
+    }));
+
+    const correctAnswers = finalQuestions.map(q => (q.correct_answer || q.correct || '').toLowerCase());
+    const explanations = finalQuestions.map(q => q.explanation || q.question_explanation || '');
+
+    const { data: sessionData, error: sessionError } = await supabase
+      .from('quiz_sessions')
+      .insert({
+        user_id: userId || null,
+        mode: 'ranked',
+        tier: tierLevel,
+        questions: clientQuestions,
+        correct_answers: correctAnswers,
+        explanations: explanations,
+        is_submitted: false
+      })
+      .select()
+      .single();
+
+    if (sessionError) {
+      console.error('[Generate Quiz API] Error creating quiz session:', sessionError);
+      return NextResponse.json({ error: 'Gagal membuat sesi kuis.' }, { status: 500 });
+    }
+
+    // 5. Trigger asynchronous refill bank
+    const baseUrl = req.nextUrl.origin;
+    if (userId) {
+      fetch(`${baseUrl}/api/refill-bank?userId=${userId}`).catch(err => {
+        console.error('[Generate Quiz API] Failed to trigger refill bank in background:', err);
+      });
+    }
+
+    // 6. Return secure payload (no correct answers or explanations!)
+    return NextResponse.json({
+      sessionId: sessionData.id,
+      questions: clientQuestions
+    });
 
   } catch (error: any) {
     console.error('[Generate Quiz API] Fatal Error:', error);

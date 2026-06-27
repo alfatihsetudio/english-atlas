@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Loader2, WifiOff } from 'lucide-react';
-import AgoraRTC, { IAgoraRTCClient } from 'agora-rtc-sdk-ng';
+import AgoraRTC from 'agora-rtc-sdk-ng';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type IAgoraRTCClient = any;
 
 interface VoiceChatProps {
   /** Unique name for the voice channel (use roomCode) */
@@ -53,7 +55,7 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
 
     async function join() {
       try {
-        client.on('user-published', async (user: any, mediaType: string) => {
+        client.on('user-published', async (user: any, mediaType: 'audio' | 'video') => {
           await client.subscribe(user, mediaType);
           if (mediaType === 'audio') {
             remoteAudioTracksRef.current.set(user.uid, user.audioTrack);
@@ -64,7 +66,7 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           }
         });
 
-        client.on('user-unpublished', (user: any, mediaType: string) => {
+        client.on('user-unpublished', (user: any, mediaType: 'audio' | 'video') => {
           if (mediaType === 'audio') {
             remoteAudioTracksRef.current.delete(user.uid);
             if (active) setRemoteCount((c) => Math.max(0, c - 1));
@@ -91,7 +93,7 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
         }
 
         // Join the channel
-        await client.join(appId, channelName, data.token, data.uid);
+        await client.join(appId as string, channelName, data.token, data.uid);
 
         if (!active) return;
 

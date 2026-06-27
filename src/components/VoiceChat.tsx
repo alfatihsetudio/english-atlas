@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Loader2 } from 'lucide-react';
-import AgoraRTC from 'agora-rtc-sdk-ng';
-import agoraClient from '@/lib/agora';
+import { Mic, MicOff, Volume2, VolumeX, Loader2, WifiOff } from 'lucide-react';
+import AgoraRTC, { IAgoraRTCClient } from 'agora-rtc-sdk-ng';
 
 interface VoiceChatProps {
   /** Unique name for the voice channel (use roomCode) */
@@ -14,17 +13,20 @@ interface VoiceChatProps {
 
 /**
  * VoiceChat component — integrates Agora RTC voice chat.
- * Auto-joins on mount, auto-leaves on unmount.
+ * Creates a fresh Agora client per component instance to avoid
+ * "Client already in connecting/connected state" errors on re-mount.
  * MUST be rendered with dynamic import + ssr:false.
  */
 export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
-  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(true); // default muted until user enables
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
   const [remoteCount, setRemoteCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  // Create a fresh Agora client per component instance (not a singleton)
+  const clientRef = useRef<IAgoraRTCClient | null>(null);
   const localTrackRef = useRef<any>(null);
   const remoteAudioTracksRef = useRef<Map<any, any>>(new Map());
   const isSpeakerMutedRef = useRef(false);
@@ -35,23 +37,24 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
 
   useEffect(() => {
     const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-    
-    // We delay the state update to avoid the setState-in-effect linter warning during early mount
+
     if (!appId) {
-      setTimeout(() => {
-        setError('Agora App ID tidak ditemukan.');
-        setIsConnecting(false);
-      }, 0);
+      setError('Agora App ID tidak ditemukan.');
+      setIsConnecting(false);
       return;
     }
     if (!channelName) return;
+
+    // Always create a fresh client for this component instance
+    const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+    clientRef.current = client;
 
     let active = true;
 
     async function join() {
       try {
-        agoraClient.on('user-published', async (user: any, mediaType: string) => {
-          await agoraClient.subscribe(user, mediaType);
+        client.on('user-published', async (user: any, mediaType: string) => {
+          await client.subscribe(user, mediaType);
           if (mediaType === 'audio') {
             remoteAudioTracksRef.current.set(user.uid, user.audioTrack);
             if (!isSpeakerMutedRef.current) {
@@ -61,22 +64,23 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           }
         });
 
-        agoraClient.on('user-unpublished', (user: any, mediaType: string) => {
+        client.on('user-unpublished', (user: any, mediaType: string) => {
           if (mediaType === 'audio') {
             remoteAudioTracksRef.current.delete(user.uid);
             if (active) setRemoteCount((c) => Math.max(0, c - 1));
           }
         });
 
-        agoraClient.on('user-left', (user: any) => {
+        client.on('user-left', (user: any) => {
           remoteAudioTracksRef.current.delete(user.uid);
           if (active) setRemoteCount((c) => Math.max(0, c - 1));
         });
 
+        // Fetch token from server
         const res = await fetch('/api/agora-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channelName, uid: uid ?? 0 })
+          body: JSON.stringify({ channelName, uid: uid ?? 0 }),
         });
         const data = await res.json();
 
@@ -86,23 +90,26 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           throw new Error(data.error || 'Gagal mengambil token dari server');
         }
 
-        await agoraClient.join(appId as string, channelName, data.token, data.uid);
+        // Join the channel
+        await client.join(appId, channelName, data.token, data.uid);
 
-        if (active) {
-          setIsJoined(true);
-          setIsConnecting(false);
-        }
+        if (!active) return;
 
-        // Try to auto-create mic, but don't fail the whole join process if browser blocks it (mobile policy)
+        setIsJoined(true);
+        setIsConnecting(false);
+
+        // Try to auto-create mic — mobile browsers may block this until user gesture
         try {
           const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
           localTrackRef.current = micTrack;
-          await agoraClient.publish([micTrack]);
-        } catch (micErr) {
-          console.warn('[VoiceChat] Auto-mic blocked by browser or no mic available:', micErr);
+          await client.publish([micTrack]);
+          // Auto-mute by default so user consciously unmutes
+          await micTrack.setEnabled(false);
           if (active) setIsMicMuted(true);
+        } catch (micErr) {
+          console.warn('[VoiceChat] Auto-mic skipped (mobile or no mic):', micErr);
+          // Leave isMicMuted=true so user can click to request permission
         }
-
       } catch (err: any) {
         console.error('[VoiceChat] Error joining:', err);
         if (active) {
@@ -114,39 +121,48 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
 
     join();
 
-    // Store the ref in a variable to satisfy exhaustive-deps for cleanup function
     const tracksMap = remoteAudioTracksRef.current;
 
     return () => {
       active = false;
-      localTrackRef.current?.stop();
-      localTrackRef.current?.close();
-      agoraClient.leave().catch(() => {});
+      try { localTrackRef.current?.stop(); } catch (_) {}
+      try { localTrackRef.current?.close(); } catch (_) {}
+      localTrackRef.current = null;
+      client.leave().catch(() => {});
+      client.removeAllListeners();
       tracksMap.clear();
-      agoraClient.removeAllListeners();
+      clientRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName, uid]);
 
   const toggleMic = async () => {
-    if (!isJoined) return;
-    
-    // If mic track wasn't created yet (e.g. blocked by mobile browser on auto-join), create it on user click
+    const client = clientRef.current;
+    if (!isJoined || !client) return;
+
+    // If mic track doesn't exist yet (blocked by mobile on auto-join), create on user click
     if (!localTrackRef.current) {
       try {
         const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
         localTrackRef.current = micTrack;
-        await agoraClient.publish([micTrack]);
+        await client.publish([micTrack]);
+        await micTrack.setEnabled(true);
         setIsMicMuted(false);
-      } catch (err) {
-        console.error('[VoiceChat] Failed to create mic track on click:', err);
-        alert('Gagal mengakses mikrofon. Pastikan Anda mengizinkan akses mikrofon di pengaturan browser Anda (dan menggunakan koneksi aman HTTPS).');
+      } catch (err: any) {
+        console.error('[VoiceChat] Mic permission denied:', err);
+        alert('Izin mikrofon ditolak. Silakan izinkan akses mikrofon di pengaturan browser Anda, lalu muat ulang halaman.');
       }
       return;
     }
 
+    // Track exists — toggle enabled state
     const next = !isMicMuted;
-    await localTrackRef.current.setEnabled(!next);
-    setIsMicMuted(next);
+    try {
+      await localTrackRef.current.setEnabled(!next);
+      setIsMicMuted(next);
+    } catch (err) {
+      console.error('[VoiceChat] Toggle mic failed:', err);
+    }
   };
 
   const toggleSpeaker = () => {
@@ -157,20 +173,17 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
 
     remoteAudioTracksRef.current.forEach((track) => {
       if (!track) return;
-      if (next) {
-        track.stop();
-      } else {
-        track.play();
-      }
+      next ? track.stop() : track.play();
     });
   };
 
-  const micDisabled = !isJoined;
-  const speakerDisabled = !isJoined;
+  // Buttons always clickable once connected; disabled only while connecting or on error
+  const buttonsDisabled = isConnecting || !!error;
 
   return (
     <div className="flex items-center gap-2">
 
+      {/* Remote user count indicator */}
       {isJoined && remoteCount > 0 && (
         <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800">
           <Volume2 size={11} className="text-green-400 animate-pulse" />
@@ -178,20 +191,30 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
         </div>
       )}
 
+      {/* Error indicator */}
+      {error && (
+        <div className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50">
+          <WifiOff size={11} className="text-red-400" />
+          <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider hidden sm:inline">VC Error</span>
+        </div>
+      )}
+
+      {/* Speaker button */}
       <button
+        type="button"
         onClick={toggleSpeaker}
-        disabled={speakerDisabled}
+        disabled={buttonsDisabled}
         title={
           isConnecting ? 'Menghubungkan...' :
-          error ? 'Voice tidak tersedia' :
+          error ? `Error: ${error}` :
           isSpeakerMuted ? 'Nyalakan Speaker' : 'Matikan Speaker'
         }
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 ${
-          speakerDisabled
-            ? 'bg-zinc-900/40 border-zinc-800/50 text-zinc-600 cursor-not-allowed'
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 touch-manipulation ${
+          buttonsDisabled
+            ? 'bg-zinc-900/40 border-zinc-800/50 text-zinc-600 cursor-not-allowed opacity-50'
             : isSpeakerMuted
-              ? 'bg-orange-950/40 border-orange-900/50 text-orange-400 hover:bg-orange-950/60'
-              : 'bg-zinc-900/60 border-zinc-700/60 text-zinc-300 hover:bg-zinc-800/80 hover:border-zinc-600'
+              ? 'bg-orange-950/40 border-orange-900/50 text-orange-400 active:scale-95'
+              : 'bg-zinc-900/60 border-zinc-700/60 text-zinc-300 active:scale-95 active:bg-zinc-800'
         }`}
       >
         {isConnecting ? (
@@ -202,24 +225,26 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           <Volume2 size={12} />
         )}
         <span className="text-[9px] font-bold uppercase tracking-wider hidden sm:inline">
-          {isConnecting ? 'VC...' : error ? 'Error' : isSpeakerMuted ? 'Bisu' : 'Dengar'}
+          {isConnecting ? 'VC...' : isSpeakerMuted ? 'Bisu' : 'Dengar'}
         </span>
       </button>
 
+      {/* Mic button */}
       <button
+        type="button"
         onClick={toggleMic}
-        disabled={micDisabled}
+        disabled={buttonsDisabled}
         title={
           isConnecting ? 'Menghubungkan...' :
-          error ? 'Voice tidak tersedia' :
+          error ? `Error: ${error}` :
           isMicMuted ? 'Nyalakan Mikrofon' : 'Matikan Mikrofon'
         }
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 ${
-          micDisabled
-            ? 'bg-zinc-900/40 border-zinc-800/50 text-zinc-600 cursor-not-allowed'
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 touch-manipulation ${
+          buttonsDisabled
+            ? 'bg-zinc-900/40 border-zinc-800/50 text-zinc-600 cursor-not-allowed opacity-50'
             : isMicMuted
-              ? 'bg-red-950/40 border-red-900/50 text-red-400 hover:bg-red-950/60'
-              : 'bg-green-950/30 border-green-900/40 text-green-400 hover:bg-green-950/50'
+              ? 'bg-red-950/40 border-red-900/50 text-red-400 active:scale-95 active:bg-red-950/60'
+              : 'bg-green-950/30 border-green-900/40 text-green-400 active:scale-95 active:bg-green-950/50'
         }`}
       >
         {isConnecting ? (
@@ -230,7 +255,7 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           <Mic size={12} />
         )}
         <span className="text-[9px] font-bold uppercase tracking-wider hidden sm:inline">
-          {isConnecting ? 'VC...' : error ? 'Error' : isMicMuted ? 'Bisu' : 'Aktif'}
+          {isConnecting ? 'VC...' : isMicMuted ? 'Bisu' : 'Aktif'}
         </span>
       </button>
 

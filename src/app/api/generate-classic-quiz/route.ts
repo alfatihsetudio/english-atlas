@@ -37,16 +37,33 @@ export async function POST(req: NextRequest) {
     const topics = ['Astronomi & Tata Surya', 'Bisnis & Pasar Global', 'Sejarah Peradaban Kuno', 'Budaya Populer & Hiburan', 'Lingkungan & Konservasi Alam', 'Kesehatan & Medis', 'Kecerdasan Buatan & Robotika', 'Psikologi Manusia', 'Seni Klasik & Sastra', 'Olahraga Ekstrem', 'Pariwisata Tersembunyi', 'Hukum & Keadilan', 'Evolusi Biologi', 'Arsitektur Megah', 'Mitos & Legenda Lokal', 'Penjelajahan Laut Dalam', 'Sistem Transportasi Masa Depan', 'Kuliner Tradisional Dunia'];
     const randomTopic = topics[Math.floor(Math.random() * topics.length)];
 
-    const prompt = `Anda adalah sistem Atlas Arena AI, pembuat soal ujian bahasa Inggris yang sangat ahli dan edukatif.
+    const prompt = `Kamu adalah Professor Bahasa Inggris yang sangat teliti.
 Buatlah tepat ${questionCount} soal bahasa Inggris (pilihan ganda) yang edukatif berdasarkan tingkat kesulitan ini:
 Tier ${tier} (${['Foundation (Mudah)', 'Intermediate (Sedang)', 'Advanced (Sulit)', 'Elite (Sangat Sulit)', 'Immortal Mastery'][tier - 1] || 'Umum'}): ${focusArea}
 
-Instruksi Khusus untuk Sesi Ini (Seed Acak: ${Date.now()}-${Math.random()}):
+Instruksi Konteks:
 - Wajib membuat konteks/topik kalimat HANYA seputar: **${randomTopic}**
 - Pastikan kalimat yang dibuat SANGAT BERVARIASI dan TIDAK SAMA dengan soal-soal sebelumnya. Gunakan kosakata yang kaya terkait topik tersebut.
 
-Instruksi Output:
-Anda HARUS merespons HANYA dalam bentuk format JSON murni berupa array berisi ${questionCount} objek dengan struktur persis seperti berikut:
+ATURAN MUTLAK SISTEM (WAJIB DIPATUHI):
+1. KEAKURATAN TATA BAHASA MUTLAK (ZERO ERRORS):
+   Sebelum mengembalikan data, kamu WAJIB memverifikasi ulang logika grammarmu.
+   Contoh: Jika kamu membuat soal tentang Articles (a/an/the) dan titik-titik berada sebelum kata sifat berawalan konsonan (misal: "___ talented accountant"), jawaban mutlak harus "a" (bukan "an"). Jangan membuat logika grammar yang saling bertentangan secara akademik.
+
+2. DILARANG KERAS MELAKUKAN SELF-CORRECTION DI PENJELASAN:
+   Penjelasan di dalam "question_explanation", "options_breakdown", dan "reasoning" harus LANGSUNG pada intinya, faktual, dan otoritatif.
+   DILARANG KERAS menggunakan kata-kata proses berpikir seperti "Tunggu", "Koreksi", "Mari kita lihat", "Sebenarnya", atau meralat dirimu sendiri di dalam teks keluaran. Tulis penjelasan yang sudah pasti benar sejak awal.
+
+3. VALIDASI KUNCI JAWABAN & BEDAH OPSI:
+   - Pastikan kamu meletakkan satu-satunya jawaban yang benar di field "correct_answer" (harus berisi "a", "b", "c", atau "d").
+   - Opsi yang merupakan JAWABAN BENAR di dalam "options_breakdown" harus menjelaskan dengan gamblang mengapa opsi tersebut benar secara tata bahasa.
+   - Opsi yang SALAH di dalam "options_breakdown" harus berisi penjelasan ringkas namun jelas mengapa opsi tersebut salah atau tidak tepat secara grammar.
+   - Penjelasan harus selaras dan tidak bertentangan dengan kunci jawaban yang dipilih.
+
+4. FORMAT STRICT JSON MURNI:
+   Kamu hanya boleh merespons dalam format JSON murni berupa array berisi objek tanpa ada teks pembuka, penutup, markdown, atau basa-basi apa pun.
+
+Struktur Output JSON yang Wajib Diikuti:
 [
   {
     "question": "Kalimat bahasa inggris yang menjadi soal...",
@@ -58,20 +75,14 @@ Anda HARUS merespons HANYA dalam bentuk format JSON murni berupa array berisi ${
     "correct_answer": "a", // (harus "a", "b", "c", atau "d")
     "question_explanation": "Penjelasan mendalam tentang struktur grammar kalimat tersebut...",
     "options_breakdown": {
-      "a": "Penjelasan rinci mengapa opsi a salah/benar dan fungsi strukturnya...",
-      "b": "Penjelasan rinci mengapa opsi b salah/benar dan fungsi strukturnya...",
-      "c": "Penjelasan rinci mengapa opsi c salah/benar dan fungsi strukturnya...",
-      "d": "Penjelasan rinci mengapa opsi d salah/benar dan fungsi strukturnya..."
+      "a": "Penjelasan mengapa opsi a salah/benar...",
+      "b": "Penjelasan mengapa opsi b salah/benar...",
+      "c": "Penjelasan mengapa opsi c salah/benar...",
+      "d": "Penjelasan mengapa opsi d salah/benar..."
     },
-    "reasoning": "Logika utama atau kesimpulan singkat mengapa jawaban yang benar adalah opsi tersebut..."
+    "reasoning": "Logika utama mengapa opsi tersebut adalah jawaban paling tepat..."
   }
-]
-
-Penting:
-- Jangan gunakan formatting markdown \`\`\`json.
-- Jangan berikan penjelasan teks apa pun di luar JSON.
-- Pastikan jawaban benar bervariasi secara acak (tidak selalu "a").
-- Pastikan terjemahan dan penjelasan berbahasa Indonesia yang natural, edukatif, dan mudah dipahami.`;
+]`;
 
     const maxRetries = 3;
     let lastError = null;

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getRankInfo } from '@/utils/rankSystem';
 import { Trophy, Medal, Search, User as UserIcon, Settings } from 'lucide-react';
+import UserProfileModal from './UserProfileModal';
 
 interface PlayerProfile {
   id: string;
@@ -15,7 +16,17 @@ interface PlayerProfile {
 export default function Leaderboard() {
   const [filter, setFilter] = useState<'10' | '50' | '100'>('10');
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setCurrentUserId(session.user.id);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     async function fetchLeaderboard() {
@@ -83,25 +94,53 @@ export default function Leaderboard() {
             {players.map((player, index) => {
               const rankInfo = getRankInfo(player.rank_points);
               const rankPos = index + 1;
+              const isCurrentUser = player.id === currentUserId;
               
               let rowStyle = "border-b border-zinc-800/50 hover:bg-zinc-800/20";
               let numberContent = <span className="text-zinc-500 font-bold text-sm sm:text-base">{rankPos}</span>;
               
               if (rankPos === 1) {
-                rowStyle = "bg-zinc-800/50 border-b border-zinc-700/50";
+                rowStyle = isCurrentUser
+                  ? "bg-amber-500/25 border-b border-amber-500/40 hover:bg-amber-500/35 border-l-4 border-l-amber-400 shadow-[inset_0_0_12px_rgba(245,158,11,0.15)]"
+                  : "bg-amber-500/15 border-b border-amber-500/30 hover:bg-amber-500/25";
                 numberContent = (
                   <div className="flex flex-col items-center">
-                    <Trophy size={12} className="text-white mb-0.5" />
-                    <span className="text-white font-black text-lg sm:text-xl leading-none">1</span>
+                    <Trophy size={14} className="text-amber-300 mb-0.5 drop-shadow-[0_0_4px_rgba(245,158,11,0.5)]" />
+                    <span className="text-amber-300 font-black text-lg sm:text-xl leading-none drop-shadow-[0_0_4px_rgba(245,158,11,0.3)]">1</span>
                   </div>
                 );
-              } else if (rankPos === 2 || rankPos === 3) {
-                rowStyle = "bg-transparent border-b border-zinc-800/50";
-                numberContent = <span className="text-zinc-300 font-black text-base sm:text-lg">{rankPos}</span>;
+              } else if (rankPos === 2) {
+                rowStyle = isCurrentUser
+                  ? "bg-slate-400/30 border-b border-slate-400/45 hover:bg-slate-400/45 border-l-4 border-l-slate-200 shadow-[inset_0_0_12px_rgba(148,163,184,0.15)]"
+                  : "bg-slate-400/20 border-b border-slate-400/30 hover:bg-slate-400/30";
+                numberContent = (
+                  <div className="flex flex-col items-center">
+                    <Medal size={14} className="text-slate-100 mb-0.5 drop-shadow-[0_0_4px_rgba(255,255,255,0.5)]" />
+                    <span className="text-slate-100 font-black text-base sm:text-lg leading-none drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">2</span>
+                  </div>
+                );
+              } else if (rankPos === 3) {
+                rowStyle = isCurrentUser
+                  ? "bg-orange-500/25 border-b border-orange-500/40 hover:bg-orange-500/35 border-l-4 border-l-orange-400 shadow-[inset_0_0_12px_rgba(249,115,22,0.15)]"
+                  : "bg-orange-500/15 border-b border-orange-500/30 hover:bg-orange-500/25";
+                numberContent = (
+                  <div className="flex flex-col items-center">
+                    <Medal size={14} className="text-orange-300 mb-0.5 drop-shadow-[0_0_4px_rgba(249,115,22,0.5)]" />
+                    <span className="text-orange-300 font-black text-base sm:text-lg leading-none drop-shadow-[0_0_4px_rgba(249,115,22,0.3)]">3</span>
+                  </div>
+                );
+              } else {
+                if (isCurrentUser) {
+                  rowStyle = "bg-indigo-950/30 border-b border-indigo-900/40 hover:bg-indigo-950/50 border-l-4 border-l-indigo-500 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)]";
+                }
               }
 
               return (
-                <div key={player.id} className={`flex items-center justify-between py-3 px-4 sm:py-4 sm:px-6 transition-colors ${rowStyle}`}>
+                <div 
+                  key={player.id} 
+                  onClick={() => setSelectedProfileId(player.id)}
+                  className={`flex items-center justify-between py-3 px-4 sm:py-4 sm:px-6 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all ${rowStyle}`}
+                >
                   <div className="flex items-center gap-3 sm:gap-4">
                     <div className="w-6 sm:w-8 flex justify-center items-center">
                       {numberContent}
@@ -116,7 +155,14 @@ export default function Leaderboard() {
                         </div>
                       )}
                       <div>
-                        <div className="font-bold text-xs sm:text-sm text-white">{player.username || 'Unknown'}</div>
+                        <div className="font-bold text-xs sm:text-sm text-white flex items-center gap-1.5">
+                          {player.username || 'Unknown'}
+                          {isCurrentUser && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-indigo-500 text-white shrink-0">
+                              Anda
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] sm:text-xs font-medium text-zinc-500 mt-0.5">{rankInfo.tier}</div>
                       </div>
                     </div>
@@ -124,7 +170,7 @@ export default function Leaderboard() {
                   
                   <div className="text-right">
                     <div className="font-black text-xs sm:text-sm text-white">{player.rank_points}</div>
-                    <div className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-widest font-bold mt-0.5">PTS</div>
+                    <div className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-widest font-bold mt-0.5">XP</div>
                   </div>
                 </div>
               );
@@ -132,6 +178,13 @@ export default function Leaderboard() {
           </div>
         )}
       </div>
+
+      {selectedProfileId && (
+        <UserProfileModal 
+          userId={selectedProfileId} 
+          onClose={() => setSelectedProfileId(null)} 
+        />
+      )}
     </div>
   );
 }

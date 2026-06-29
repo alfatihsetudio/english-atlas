@@ -117,7 +117,12 @@ export default function VoiceChat({ channelName, uid }: VoiceChatProps) {
           // Leave isMicMuted=true so user can click to request permission
         }
       } catch (err: any) {
-        if (err?.message?.includes('WS_ABORT') || err?.message?.includes('aborted')) {
+        if (
+          err?.message?.includes('WS_ABORT') || 
+          err?.message?.includes('aborted') || 
+          err?.message?.includes('OPERATION_ABORTED') || 
+          err?.message?.includes('cancel token')
+        ) {
           // Expected error when component unmounts during connection
           return;
         }

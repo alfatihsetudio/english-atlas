@@ -31,20 +31,20 @@ body {
   border-radius: 4px;
 }
 
-/* Custom Scrollbars matching dark theme */
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b; /* zinc-950 */
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a; /* zinc-800 */
+  background: rgba(100, 116, 139, 0.3); /* semi-transparent slate */
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46; /* zinc-700 */
+  background: rgba(100, 116, 139, 0.5);
 }
 
 /* Hide scrollbar but keep functionality */
@@ -55,5 +55,7 @@ body {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+
 
 

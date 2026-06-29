@@ -4,12 +4,30 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
-import { Loader2, Trophy, Swords, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
-import { calculateBattlePoints } from '@/utils/rankSystem';
+import { Loader2, Trophy, Swords, CheckCircle2, XCircle, AlertTriangle, Eye } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
 const VoiceChat = dynamic(() => import('@/components/VoiceChat'), { ssr: false });
 const BattleChat = dynamic(() => import('@/components/BattleChat'), { ssr: false });
+
+function seededShuffle<T>(array: T[], seed: string): T[] {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(31, h) + seed.charCodeAt(i) | 0;
+  }
+  const nextRandom = () => {
+    h = Math.imul(1664525, h) + 1013904223 | 0;
+    return (h >>> 0) / 0xffffffff;
+  };
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(nextRandom() * (i + 1));
+    const temp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = temp;
+  }
+  return shuffled;
+}
 
 interface QuizQuestion {
   question: string;
@@ -21,12 +39,31 @@ interface QuizQuestion {
   explanation: string;
 }
 
+function shuffleOptions(question: QuizQuestion, seed: string): QuizQuestion {
+  const letters = ['a', 'b', 'c', 'd'] as const;
+  const correctLetter = question.correct_answer.toLowerCase() as 'a' | 'b' | 'c' | 'd';
+  const correctText = question[`option_${correctLetter}` as keyof QuizQuestion] as string;
+  const options = letters.map(l => question[`option_${l}` as keyof QuizQuestion] as string);
+  const shuffledOptions = seededShuffle(options, seed);
+  const newCorrectIndex = shuffledOptions.indexOf(correctText);
+  const newCorrectLetter = newCorrectIndex !== -1 ? (letters[newCorrectIndex] as 'a' | 'b' | 'c' | 'd') : correctLetter;
+  return {
+    ...question,
+    option_a: shuffledOptions[0] || '',
+    option_b: shuffledOptions[1] || '',
+    option_c: shuffledOptions[2] || '',
+    option_d: shuffledOptions[3] || '',
+    correct_answer: newCorrectLetter
+  };
+}
+
 interface PlayerScore {
   user_id: string;
   username: string;
   avatar_url: string;
   score: number;
   is_ready: boolean; // used as is_finished flag
+  is_observer?: boolean;
 }
 
 export default function BattlePlayPage() {
@@ -36,8 +73,9 @@ export default function BattlePlayPage() {
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [room, setRoom] = useState<any>(null);
-  const [gameState, setGameState] = useState<'loading' | 'playing' | 'finished' | 'disqualified'>('loading');
+  const [gameState, setGameState] = useState<'loading' | 'playing' | 'observing' | 'finished' | 'disqualified'>('loading');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+  const isObserverRef = useRef(false);
   
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [myScore, setMyScore] = useState(0);
@@ -52,7 +90,7 @@ export default function BattlePlayPage() {
   const [finalScores, setFinalScores] = useState<PlayerScore[] | null>(null);
   const channelRef = useRef<any>(null);
   const isFinishedRef = useRef(false);
-  const gameStateRef = useRef<'loading' | 'playing' | 'finished' | 'disqualified'>('loading');
+  const gameStateRef = useRef<'loading' | 'playing' | 'observing' | 'finished' | 'disqualified'>('loading');
   const isMountedRef = useRef(true);
 
   // Keep ref in sync for cleanup
@@ -63,7 +101,8 @@ export default function BattlePlayPage() {
   // Lock final scores once everyone finishes so early leavers don't corrupt the scoreboard
   useEffect(() => {
     if (gameState === 'finished' && !finalScores) {
-      const validPlayers = playerScores.filter(p => p.score !== -1);
+      const activePlayers = playerScores.filter(p => !p.is_observer);
+      const validPlayers = activePlayers.filter(p => p.score !== -1);
       const allFinished = validPlayers.length > 0 && validPlayers.every(p => p.is_ready);
       if (allFinished) {
          setFinalScores([...playerScores]);
@@ -106,9 +145,9 @@ export default function BattlePlayPage() {
         }
         setRoom(roomData);
 
-        // Check if this user has been disqualified (score = -1)
+        // Check if this user has been disqualified (score = -1) or is an observer
         const { data: myParticipant } = await (supabase.from('battle_participants') as any)
-          .select('score, is_ready')
+          .select('score, is_ready, is_observer')
           .eq('room_id', roomData.id)
           .eq('user_id', user.id)
           .single();
@@ -120,42 +159,57 @@ export default function BattlePlayPage() {
           return;
         }
 
-        // Load questions from the DB (set by Host before game started)
-        const totalQuestions = roomData.questions?.length || 0;
-        if (totalQuestions === 0) {
-          alert('Soal pertandingan tidak ditemukan!');
-          router.replace('/arena');
-          return;
-        }
-        setQuestions(roomData.questions);
+        // === Check if this player is an Observer ===
+        const isObserver = myParticipant?.is_observer === true;
+        isObserverRef.current = isObserver;
 
-        // Resume or Reset logic
-        let isAlreadyFinished = false;
-        if (myParticipant && myParticipant.score === 0 && myParticipant.is_ready) {
-           // Fresh start from lobby
-           await (supabase.from('battle_participants') as any)
-             .update({ is_ready: false, score: 0 })
-             .eq('room_id', roomData.id)
-             .eq('user_id', user.id);
-        } else if (myParticipant && myParticipant.score >= 0) {
-           // Resuming game or already finished
-           const progress = myParticipant.score % 1000;
-           setMyScore(myParticipant.score);
-           if (progress >= totalQuestions || myParticipant.is_ready) {
-              isFinishedRef.current = true;
-              isAlreadyFinished = true;
-           } else {
-              setCurrentQuestionIdx(progress);
-           }
-        }
-
-        // Fetch initial live scores from DB
-        await fetchLiveScores(roomData.id);
-
-        if (isAlreadyFinished) {
-           setGameState('finished');
+        if (isObserver) {
+          // Observer: just load scores and watch
+          await fetchLiveScores(roomData.id);
+          setGameState('observing');
+          // Still need realtime below — don't return yet
         } else {
-           setGameState('playing');
+          // Load questions from the DB (set by Host before game started)
+          const totalQuestions = roomData.questions?.length || 0;
+          if (totalQuestions === 0) {
+            alert('Soal pertandingan tidak ditemukan!');
+            router.replace('/arena');
+            return;
+          }
+          const shuffledQuestions = seededShuffle(roomData.questions as QuizQuestion[], user.id + roomData.id);
+          const fullyShuffled = shuffledQuestions.map((q: QuizQuestion, idx) => {
+            return shuffleOptions(q, user.id + roomData.id + q.question + idx);
+          });
+          setQuestions(fullyShuffled);
+
+          // Resume or Reset logic
+          let isAlreadyFinished = false;
+          if (myParticipant && myParticipant.score === 0 && myParticipant.is_ready) {
+             // Fresh start from lobby
+             await (supabase.from('battle_participants') as any)
+               .update({ is_ready: false, score: 0 })
+               .eq('room_id', roomData.id)
+               .eq('user_id', user.id);
+          } else if (myParticipant && myParticipant.score >= 0) {
+             // Resuming game or already finished
+             const progress = myParticipant.score % 1000;
+             setMyScore(myParticipant.score);
+             if (progress >= totalQuestions || myParticipant.is_ready) {
+                isFinishedRef.current = true;
+                isAlreadyFinished = true;
+             } else {
+                setCurrentQuestionIdx(progress);
+             }
+          }
+
+          // Fetch initial live scores from DB
+          await fetchLiveScores(roomData.id);
+
+          if (isAlreadyFinished) {
+             setGameState('finished');
+          } else {
+             setGameState('playing');
+          }
         }
 
         // Setup realtime for live score updates
@@ -166,8 +220,19 @@ export default function BattlePlayPage() {
             schema: 'public',
             table: 'battle_participants',
             filter: `room_id=eq.${roomData.id}`
-          }, () => {
-            if (active) fetchLiveScores(roomData.id);
+          }, async () => {
+            if (!active) return;
+            const latest = await fetchLiveScores(roomData.id);
+            // Observer: auto-transition to finished when all active players done
+            if (isObserverRef.current && gameStateRef.current === 'observing') {
+              const activePlayers = latest.filter(p => !p.is_observer);
+              const allDone = activePlayers.length > 0 &&
+                activePlayers.every(p => p.is_ready || p.score === -1);
+              if (allDone) {
+                setFinalScores(activePlayers);
+                setGameState('finished');
+              }
+            }
           })
           .on('postgres_changes', {
             event: 'DELETE',
@@ -201,8 +266,8 @@ export default function BattlePlayPage() {
 
     return () => {
       active = false;
-      // ABANDONMENT PENALTY: if navigating away while playing, set score = -1
-      if (gameStateRef.current === 'playing' && !isFinishedRef.current) {
+      // ABANDONMENT PENALTY: only for active players, not observers
+      if (!isObserverRef.current && gameStateRef.current === 'playing' && !isFinishedRef.current) {
         // Fire-and-forget: mark as forfeited
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (!session?.user) return;
@@ -232,20 +297,25 @@ export default function BattlePlayPage() {
         user_id,
         score,
         is_ready,
+        is_observer,
         profiles:user_id (username, avatar_url)
       `)
       .eq('room_id', roomId)
       .order('score', { ascending: false });
 
     if (data) {
-      setPlayerScores(data.map((p: any) => ({
+      const mapped: PlayerScore[] = data.map((p: any) => ({
         user_id: p.user_id,
         username: p.profiles?.username || 'Player',
         avatar_url: p.profiles?.avatar_url || '',
         score: p.score,
-        is_ready: p.is_ready
-      })));
+        is_ready: p.is_ready,
+        is_observer: p.is_observer || false
+      }));
+      setPlayerScores(mapped);
+      return mapped;
     }
+    return [];
   };
 
   const handleAnswer = async (index: number, optionLetter: string) => {
@@ -417,8 +487,136 @@ export default function BattlePlayPage() {
     );
   }
 
+  // ---- OBSERVER DASHBOARD ----
+  if (gameState === 'observing') {
+    const activePlayers = playerScores.filter(p => !p.is_observer);
+    const totalQuestions = room?.questions?.length || 0;
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans flex flex-col">
+        {/* Header */}
+        <div className="w-full bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-4 py-3 sticky top-0 z-40 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-indigo-950/60 border border-indigo-800 px-3 py-1.5 rounded-lg">
+              <Eye size={14} className="text-indigo-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-indigo-300">Mode Admin</span>
+            </div>
+            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Room: {roomCode}</span>
+          </div>
+          <VoiceChat channelName={roomCode} />
+        </div>
+
+        {/* Observer Content */}
+        <div className="flex-1 w-full max-w-4xl mx-auto p-4 md:p-6">
+          <div className="mb-6 text-center">
+            <h1 className="text-lg font-black text-white uppercase tracking-widest mb-1">Papan Progres Live</h1>
+            <p className="text-xs text-zinc-500">Anda mengawasi {activePlayers.length} pemain · {totalQuestions} soal</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {activePlayers.map((p, i) => {
+              const isForfeited = p.score === -1;
+              const isFinished = p.is_ready;
+              const answered = isForfeited ? 0 : (p.score % 1000);
+              const correct = isForfeited ? 0 : Math.floor(p.score / 1000);
+              const progressPct = totalQuestions > 0 ? Math.round((answered / totalQuestions) * 100) : 0;
+
+              return (
+                <div key={p.user_id} className={`bg-zinc-900 border rounded-2xl p-5 flex flex-col gap-3 transition-colors ${
+                  isForfeited ? 'border-red-900/50 bg-red-950/10' :
+                  isFinished ? 'border-green-800/60 bg-green-950/10' :
+                  'border-zinc-800'
+                }`}>
+                  {/* Player header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-zinc-800 overflow-hidden border-2 border-zinc-700 shrink-0">
+                          {p.avatar_url
+                            ? <img src={p.avatar_url} className="w-full h-full object-cover" alt="" />
+                            : <div className="w-full h-full flex items-center justify-center text-sm">👤</div>}
+                        </div>
+                        <div className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-zinc-700 text-[10px] font-black flex items-center justify-center text-zinc-300">
+                          {i + 1}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="font-bold text-white text-sm">{p.username}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                          {isForfeited ? '❌ Diskualifikasi' : isFinished ? '✓ Selesai' : `Soal ${answered}/${totalQuestions}`}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Status badge */}
+                    {isForfeited ? (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-red-500 bg-red-950/50 border border-red-900/50 px-2 py-1 rounded-lg">DQ</span>
+                    ) : isFinished ? (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-green-400 bg-green-950/50 border border-green-900/50 px-2 py-1 rounded-lg">SELESAI</span>
+                    ) : (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-800 border border-zinc-700 px-2 py-1 rounded-lg animate-pulse">LIVE</span>
+                    )}
+                  </div>
+
+                  {/* Progress bar */}
+                  <div>
+                    <div className="flex justify-between text-[10px] font-bold text-zinc-500 mb-1.5">
+                      <span>Progress</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          isForfeited ? 'bg-red-600' : isFinished ? 'bg-green-500' : 'bg-indigo-500'
+                        }`}
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Score stats */}
+                  {!isForfeited && (
+                    <div className="flex gap-3">
+                      <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2 text-center">
+                        <p className="text-lg font-black text-white">{correct}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Benar</p>
+                      </div>
+                      <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2 text-center">
+                        <p className="text-lg font-black text-zinc-400">{answered - correct}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Salah</p>
+                      </div>
+                      <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2 text-center">
+                        <p className="text-lg font-black text-zinc-300">{totalQuestions - answered}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Sisa</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {activePlayers.length === 0 && (
+            <div className="text-center py-20 text-zinc-600 text-sm">Menunggu pemain bergabung...</div>
+          )}
+        </div>
+
+        {/* Battle Chat */}
+        {room && (
+          <BattleChat
+            roomCode={roomCode}
+            currentUser={currentUser ? {
+              id: currentUser.id,
+              username: playerScores.find(p => p.user_id === currentUser.id)?.username || currentUser.email?.split('@')[0] || 'Admin',
+              avatar_url: playerScores.find(p => p.user_id === currentUser.id)?.avatar_url || ''
+            } : null}
+          />
+        )}
+      </div>
+    );
+  }
+
   // ---- FINISHED SCREEN ----
   if (gameState === 'finished') {
+
     if (!finalScores) {
       return (
         <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-zinc-100 p-4">
@@ -428,7 +626,7 @@ export default function BattlePlayPage() {
             <p className="text-zinc-400 text-sm mb-8">Menunggu pemain lain menyelesaikan pertarungan...</p>
             
             <div className="w-full space-y-3">
-              {playerScores.map(p => (
+              {playerScores.filter(p => !p.is_observer).map(p => (
                 <div key={p.user_id} className="flex items-center justify-between bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-zinc-700 overflow-hidden shrink-0">
@@ -454,29 +652,37 @@ export default function BattlePlayPage() {
     }
 
     // All done - Show final scoreboard
-    const sortedPlayers = [...finalScores].sort((a, b) => {
+    const sortedPlayers = [...finalScores].filter(p => !p.is_observer).sort((a, b) => {
       if (a.score === -1) return 1;
       if (b.score === -1) return -1;
       const aCorrect = Math.floor(a.score / 1000);
       const bCorrect = Math.floor(b.score / 1000);
       return bCorrect - aCorrect;
     });
-    const myPos = sortedPlayers.findIndex(p => p.user_id === currentUser?.id);
     const validSorted = sortedPlayers.filter(p => p.score !== -1);
     
     // Determine winner based on correct answers
+    const amIObserverNow = isObserverRef.current;
     const myScoreObj = finalScores.find(p => p.user_id === currentUser?.id);
     const myCorrect = myScoreObj && myScoreObj.score !== -1 ? Math.floor(myScoreObj.score / 1000) : -1;
     const topCorrect = validSorted.length > 0 ? Math.floor(validSorted[0].score / 1000) : 0;
     const topScorersCount = validSorted.filter(p => Math.floor(p.score / 1000) === topCorrect).length;
 
-    const isWinner = topScorersCount === 1 && myCorrect === topCorrect;
-    const isDraw = topScorersCount > 1 && myCorrect === topCorrect;
+    const isWinner = !amIObserverNow && topScorersCount === 1 && myCorrect === topCorrect;
+    const isDraw = !amIObserverNow && topScorersCount > 1 && myCorrect === topCorrect;
+    const totalQuestionsCount = room?.questions?.length || questions.length;
 
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center py-12 px-4 text-zinc-100">
         <div className="text-center mb-10 mt-8">
-          {isWinner ? (
+          {amIObserverNow ? (
+            <div className="inline-block relative">
+              <div className="absolute inset-0 bg-indigo-500 blur-[40px] opacity-10 rounded-full"></div>
+              <Eye className="w-20 h-20 text-indigo-400 relative z-10 mx-auto mb-4" />
+              <h1 className="text-3xl font-black text-white uppercase tracking-[0.2em]">Pertandingan</h1>
+              <p className="text-indigo-400 font-bold tracking-widest uppercase text-sm mt-1">Selesai</p>
+            </div>
+          ) : isWinner ? (
             <div className="inline-block relative">
               <div className="absolute inset-0 bg-yellow-500 blur-[40px] opacity-20 rounded-full"></div>
               <Trophy className="w-24 h-24 text-yellow-500 relative z-10 mx-auto mb-4" />
@@ -494,6 +700,7 @@ export default function BattlePlayPage() {
             </div>
           )}
         </div>
+
 
         <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl">
           <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest text-center mb-6">Papan Skor Akhir</h3>
@@ -524,7 +731,7 @@ export default function BattlePlayPage() {
                     {isForfeited ? (
                       <span className="text-red-600 text-sm">—</span>
                     ) : (
-                      <>{Math.floor(p.score / 1000)} / {questions.length} <span className="text-xs text-zinc-500 font-normal">Benar</span></>
+                      <>{Math.floor(p.score / 1000)} / {totalQuestionsCount} <span className="text-xs text-zinc-500 font-normal">Benar</span></>
                     )}
                   </div>
                 </div>

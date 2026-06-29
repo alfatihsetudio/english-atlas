@@ -797,7 +797,7 @@ export default function HomeAtlas() {
               English Atlas adalah platform pembelajaran bahasa Inggris interaktif yang memetakan rumus-rumus grammar ke dalam bentuk visual yang intuitif. Dilengkapi dengan asisten AI personal, analisis tata bahasa otomatis, dan fitur kamus komprehensif, aplikasi ini dirancang untuk membuat pengalaman belajar bahasa Inggris menjadi lebih mudah dan terstruktur.
             </p>
             <p className="text-[9px] text-slate-500 font-bold mb-1">
-              Versi: English Atlas 0.0.2
+              Versi: English Atlas 0.0.3 30/6/2026
             </p>
             <p className="text-[9px] text-slate-400 font-medium">
               Dibuat oleh alfatih ahmad 22 juni 2026
@@ -858,13 +858,13 @@ export default function HomeAtlas() {
 
 
           {/* Grammar Analysis Form */}
-          <form onSubmit={handleAnalyze} className="relative flex items-center shadow-md rounded-xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-0.5">
+          <form onSubmit={handleAnalyze} className="relative flex items-center shadow-md rounded-xl md:rounded-full bg-white/95 backdrop-blur-md border border-indigo-100 p-1">
             <input
               type="text"
               value={analyzeQuery}
               onChange={(e) => setAnalyzeQuery(e.target.value)}
               placeholder="Ketik kalimat Inggris..."
-              className="flex-grow bg-transparent border-none outline-none px-3 py-1.5 md:px-5 md:py-2.5 text-slate-800 placeholder-slate-400 text-xs md:text-base w-full min-w-0 pr-1"
+              className="flex-grow bg-transparent border-none outline-none px-3.5 py-1 md:px-5 md:py-1.5 text-slate-800 placeholder-slate-400 text-xs md:text-base w-full min-w-0 pr-1"
             />
             {analyzeQuery && (
               <button
@@ -882,7 +882,7 @@ export default function HomeAtlas() {
             <button
               type="submit"
               disabled={isLoadingAi}
-              className={`flex items-center justify-center gap-1 px-3 py-1.5 md:px-4 md:py-2 rounded-full text-white text-xs font-semibold transition-all duration-200 shrink-0 transform active:scale-[0.97] ${
+              className={`flex items-center justify-center gap-1 px-3 py-1 md:px-4 md:py-2 rounded-full text-white text-xs font-semibold transition-all duration-200 shrink-0 transform active:scale-[0.97] mr-0 md:mr-1 ${
                 isLoadingAi 
                   ? 'bg-slate-400 cursor-wait' 
                   : 'bg-indigo-600 hover:bg-indigo-700 shadow-sm'
@@ -1129,16 +1129,15 @@ export default function HomeAtlas() {
         </div>
       </div>
       {/* Rumus Dasar (Legend) Widget — bottom-left, above bottom bar */}
-      {!selectedNode && (
-        <div className="fixed z-50 bottom-20 left-4 md:bottom-8 md:left-8 flex flex-col items-start gap-1.5 pointer-events-none">
-          <button
-            onClick={() => setIsLegendOpen(!isLegendOpen)}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-full shadow-md transition-all border border-slate-600 pointer-events-auto"
-          >
-            <BookOpen size={14} />
-            <span className="font-semibold text-xs">Rumus Dasar</span>
-            <ChevronDown size={14} className={`transform transition-transform ${isLegendOpen ? 'rotate-180' : ''}`} />
-          </button>
+      <div className="fixed z-20 bottom-20 left-4 md:bottom-8 md:left-8 flex flex-col items-start gap-1.5 pointer-events-none">
+        <button
+          onClick={() => setIsLegendOpen(!isLegendOpen)}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-full shadow-md transition-all border border-slate-600 pointer-events-auto"
+        >
+          <BookOpen size={14} />
+          <span className="font-semibold text-xs">Rumus Dasar</span>
+          <ChevronDown size={14} className={`transform transition-transform ${isLegendOpen ? 'rotate-180' : ''}`} />
+        </button>
 
           {isLegendOpen && (
             <div className="relative bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg w-[calc(100vw-2rem)] md:w-[300px] max-h-[40vh] overflow-y-auto pointer-events-auto">
@@ -1191,7 +1190,6 @@ export default function HomeAtlas() {
             </div>
           )}
         </div>
-      )}
 
       <ReactFlow
         nodes={displayNodes}
@@ -1214,25 +1212,27 @@ export default function HomeAtlas() {
       </ReactFlow>
 
       {/* Smart Dictionary */}
-      {!selectedNode && <DictionarySearch />}
+      <DictionarySearch />
 
       {/* AI Chatbot */}
-      {!selectedNode && <EnglishTutorChat username={username} />}
+      <EnglishTutorChat username={username} />
 
       {/* Panel Materi: Bottom Sheet on mobile, Side Panel on desktop */}
-      {selectedNode && (
-        <div 
-          className={`
-            fixed z-30
-            bottom-0 left-0 w-full rounded-t-2xl
-            md:bottom-auto md:top-0 md:right-0 md:left-auto md:w-96 md:h-full md:rounded-none
-            bg-white shadow-2xl
-            border-t border-slate-200 md:border-t-0 md:border-l
-            flex flex-col
-            ${isDraggingSheet ? '' : 'transition-all duration-300 ease-out'}
-          `}
-          style={isMobile ? { height: `${sheetHeight}px`, maxHeight: '95vh' } : {}}
-        >
+      <div 
+        className={`
+          fixed z-30
+          bottom-0 left-0 w-full rounded-t-2xl
+          md:bottom-auto md:top-14 md:right-0 md:left-auto md:w-96 md:h-[calc(100vh-3.5rem)] md:rounded-none
+          bg-white shadow-2xl
+          border-t border-slate-200 md:border-t-0 md:border-l
+          flex flex-col
+          transition-transform duration-300 ease-out
+          ${selectedNode ? 'translate-y-0 md:translate-x-0 md:translate-y-0' : 'translate-y-full md:translate-x-full md:translate-y-0'}
+        `}
+        style={isMobile ? { height: `${sheetHeight}px`, maxHeight: '95vh' } : {}}
+      >
+        {selectedNode && (
+          <>
           {/* Drag handle — mobile only */}
           <div 
             className="flex justify-center pt-2.5 pb-1.5 md:hidden cursor-row-resize select-none touch-none active:bg-slate-50 rounded-t-2xl"
@@ -1619,13 +1619,14 @@ export default function HomeAtlas() {
               )}
             </div>
           </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {/* Floating Game-Style Arena Button (Visible on both Mobile and Desktop/Dex) */}
       <Link
         href="/arena"
-        className="fixed bottom-20 right-4 md:bottom-24 md:right-6 z-50 bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-full flex items-center justify-center gap-1.5 shadow-[0_4px_20px_rgba(245,158,11,0.5)] border-2 border-white hover:scale-105 active:scale-95 transition-all animate-pulse"
+        className="fixed z-20 bottom-20 right-4 md:bottom-24 md:right-6 bg-gradient-to-tr from-yellow-500 via-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-full flex items-center justify-center gap-1.5 shadow-[0_4px_20px_rgba(245,158,11,0.5)] border-2 border-white hover:scale-105 active:scale-95 transition-all animate-pulse"
       >
         <Trophy size={14} className="stroke-[2.5] shrink-0" />
         <span className="text-[10px] font-black tracking-wider uppercase leading-none">Atlas Game</span>

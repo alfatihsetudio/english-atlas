@@ -37,6 +37,24 @@ export async function GET(req: NextRequest) {
     let wasReset = false;
 
     if (currentSeason !== currentSeasonId) {
+       // Simpan riwayat season sebelumnya ke season_history
+       try {
+         await adminSupabase
+           .from('season_history')
+           .insert({
+             user_id: user.id,
+             season_id: profileData.season_id || 'unknown',
+             rank_points: profileData.rank_points || 0,
+             highest_rank_points: profileData.highest_rank_points || 0,
+             total_matches: profileData.total_matches_played || 0,
+             accuracy: profileData.total_questions_answered > 0
+               ? Math.round(((profileData.total_correct_answers || 0) / profileData.total_questions_answered) * 100)
+               : 0
+           });
+       } catch (historyErr) {
+         console.error('[Sync Profile] Gagal menyimpan riwayat season:', historyErr);
+       }
+
        currentRankPoints = Math.floor(currentRankPoints / 2) + 100;
        currentSeason = currentSeasonId;
        wasReset = true;

@@ -6,17 +6,45 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 import AuthModal from '@/components/AuthModal';
-import { Trophy, ArrowLeft, LayoutGrid, User as UserIcon, Loader2, Sparkles, Settings, Search, Swords, BookOpen, ChevronRight, GraduationCap, Info, X } from 'lucide-react';
+import { Trophy, ArrowLeft, LayoutGrid, User as UserIcon, Users, Loader2, Sparkles, Settings, Search, Swords, BookOpen, ChevronRight, GraduationCap, Info, X } from 'lucide-react';
 import { getRankInfo, RANKS } from '@/utils/rankSystem';
 import QuizBoard from '@/components/QuizBoard';
 import ClassicBoard from '@/components/ClassicBoard';
 import Leaderboard from '@/components/Leaderboard';
+import UserProfileModal from '@/components/UserProfileModal';
+import FriendsSidebar from '@/components/FriendsSidebar';
 
 export default function ArenaPage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<{ username: string; avatar_url: string; rank_points: number; highest_rank_points: number; global_rank: number | null; season_id?: string | null; total_questions_answered?: number; total_correct_answers?: number; total_matches_played?: number } | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [personalTab, setPersonalTab] = useState<'current' | 'history'>('current');
+  const [personalHistory, setPersonalHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user) {
+      setPersonalHistory([]);
+      return;
+    }
+    async function fetchPersonalHistory() {
+      const u = user;
+      if (!u) return;
+      try {
+        const { data, error } = await (supabase.from('season_history') as any)
+          .select('*')
+          .eq('user_id', u.id)
+          .order('season_id', { ascending: false });
+        if (!error && data) {
+          setPersonalHistory(data);
+        }
+      } catch (err) {
+        console.error('Error fetching personal season history:', err);
+      }
+    }
+    fetchPersonalHistory();
+  }, [user]);
 
   const [quizState, setQuizState] = useState<'lobby' | 'loading_quiz' | 'playing'>('lobby');
   const [quizMode, setQuizMode] = useState<'ranked' | 'classic' | null>(null);
@@ -54,6 +82,9 @@ export default function ArenaPage() {
   const [playersOfSelectedRank, setPlayersOfSelectedRank] = useState<any[]>([]);
   const [loadingRankPlayers, setLoadingRankPlayers] = useState(false);
   const [sessionId, setSessionId] = useState<string>('');
+  
+  // Realtime Presence States
+  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
   useEffect(() => {
     async function init() {
@@ -155,6 +186,34 @@ export default function ArenaPage() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Set up Realtime Presence and Update last_seen_atlas
+  useEffect(() => {
+    if (!user) return;
+    
+    // Update last_seen_atlas on mount
+    (supabase.from('profiles') as any).update({ last_seen_atlas: new Date().toISOString() }).eq('id', user.id).then();
+
+    const channel = supabase.channel('atlas_presence', {
+      config: { presence: { key: user.id } },
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const newState = channel.presenceState();
+        const onlineIds = Object.keys(newState);
+        setOnlineUserIds(onlineIds);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // Listen to battle_invites strictly in real-time (ephemeral)
   useEffect(() => {
@@ -719,6 +778,34 @@ export default function ArenaPage() {
             )}
           </div>
 
+          {/* Quick Shortcuts */}
+          <div className="flex items-center gap-2 mt-2 pb-1 overflow-x-auto no-scrollbar scroll-smooth">
+            <button
+              onClick={() => document.getElementById('profile-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-[9px] sm:text-[10px] font-bold text-zinc-400 hover:text-white transition-all shrink-0"
+            >
+              👤 Profil
+            </button>
+            <button
+              onClick={() => document.getElementById('friends-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-[9px] sm:text-[10px] font-bold text-zinc-400 hover:text-white transition-all shrink-0"
+            >
+              👥 Teman
+            </button>
+            <button
+              onClick={() => document.getElementById('leaderboard-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-[9px] sm:text-[10px] font-bold text-zinc-400 hover:text-white transition-all shrink-0"
+            >
+              🏆 Leaderboard
+            </button>
+            <div className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900/30 border border-zinc-800/30 rounded-full text-[9px] sm:text-[10px] font-bold text-zinc-650 shrink-0 cursor-not-allowed">
+              🔒 Event (Soon)
+            </div>
+            <div className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900/30 border border-zinc-800/30 rounded-full text-[9px] sm:text-[10px] font-bold text-zinc-650 shrink-0 cursor-not-allowed">
+              🔒 Turnamen (Soon)
+            </div>
+          </div>
+
           {/* List Hasil Pencarian Dropdown */}
           {searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl z-50 flex flex-col divide-y divide-zinc-800 max-h-48 overflow-y-auto">
@@ -728,7 +815,7 @@ export default function ArenaPage() {
                   <div
                     key={p.id}
                     onClick={() => {
-                      setSelectedUser(p);
+                      setSelectedProfileId(p.id);
                       setSearchTerm('');
                       setSearchResults([]);
                     }}
@@ -737,7 +824,7 @@ export default function ArenaPage() {
                     {p.avatar_url ? (
                       <img src={p.avatar_url} alt={p.username} className="w-8 h-8 rounded-full border border-zinc-700 object-cover shrink-0" />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-zinc-850 border border-zinc-700 flex items-center justify-center text-zinc-500 text-[10px] shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-500 text-[10px] shrink-0">
                         {getRankEmoji(pRankInfo.tier)}
                       </div>
                     )}
@@ -754,28 +841,30 @@ export default function ArenaPage() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="max-w-6xl w-full mx-auto px-3 sm:px-4 pt-2 pb-24 md:pb-24 flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-6 flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
+      <div className="max-w-6xl w-full mx-auto px-3 sm:px-4 pt-2 pb-[76px] md:pb-0 md:mb-24 flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-4 flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
         
         {/* Kolom Kiri: Profil Pribadi & Rank Poster (Span 4 col) */}
-        <div className="md:col-span-4 flex flex-col gap-3 min-h-0 md:overflow-y-auto pb-2 md:pb-0 shrink-0">
+        <div className="md:col-span-4 flex flex-col gap-3 min-h-0 md:h-full md:overflow-hidden pb-2 md:pb-0 shrink-0">
           
           {/* Profil Pribadi Card */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl p-3 shadow-2xl flex flex-col relative overflow-hidden shrink-0">
+          <div id="profile-section" className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl p-4 shadow-2xl flex flex-col relative overflow-hidden md:flex-1 md:min-h-0 shrink-0 scroll-mt-3">
             {/* Header Profil (Horizontal Layout) */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-lg overflow-hidden shrink-0 shadow-inner">
+              <div className="w-12 h-12 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-lg overflow-hidden shrink-0 shadow-inner">
                 {user && profile?.avatar_url ? (
                   <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <span>{getRankEmoji(rankInfo?.tier)}</span>
+                  <span className="font-extrabold text-white text-base">
+                    {profile?.username ? profile.username.charAt(0).toUpperCase() : '?'}
+                  </span>
                 )}
               </div>
               
               <div className="flex flex-col min-w-0">
-                <h2 className="text-xs sm:text-sm font-bold text-white truncate">
+                <h2 className="text-sm sm:text-base font-extrabold text-white truncate">
                   {user ? profile?.username : 'Guest Player'}
                 </h2>
-                <div className="bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase mt-0.5 w-fit">
+                <div className="bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase mt-1 w-fit">
                   {user ? (rankInfo?.tier || 'Rookie') : 'Not Ranked'}
                 </div>
               </div>
@@ -783,56 +872,126 @@ export default function ArenaPage() {
 
             {/* Progress Bar & Seasonal Info */}
             {user && rankInfo && (
-              <div className="mt-2.5 w-full">
-                <div className="flex justify-between text-[8px] font-bold text-zinc-400 mb-0.5">
+              <div className="mt-3.5 w-full">
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 mb-1">
                   <span>{profile?.rank_points || 0} XP</span>
                   <span>{rankInfo.maxPoints === Infinity ? 'MAX' : `${rankInfo.maxPoints + 1} XP`}</span>
                 </div>
-                <div className="w-full bg-zinc-800 h-1 rounded-full overflow-hidden">
+                <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
                   <div 
                     className="bg-indigo-500 h-full rounded-full transition-all duration-500"
                     style={{ width: `${Math.min(100, Math.max(0, (((profile?.rank_points || 0) - rankInfo.minPoints) / (rankInfo.maxPoints - rankInfo.minPoints)) * 100))}%` }}
                   ></div>
                 </div>
-                <div className="text-center mt-1 text-[8px] text-zinc-500 font-medium">
+                <div className="text-center mt-1.5 text-[9px] text-zinc-500 font-medium">
                   Sisa {Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} hari reset
                 </div>
               </div>
             )}
 
-            {/* Statistik Grid (Compact 3x2) */}
-            {user ? (
-              <div className="grid grid-cols-3 gap-y-2 mt-2.5 border-t border-zinc-850 pt-2 text-center">
-                {/* Row 1 */}
-                <div>
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Total XP</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5">{profile?.rank_points || 0}</div>
-                </div>
-                <div className="border-l border-zinc-850">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Global</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5">{profile?.global_rank ? `#${profile.global_rank}` : '#--'}</div>
-                </div>
-                <div className="border-l border-zinc-850">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Top</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5 truncate">{profile ? getRankInfo(profile.highest_rank_points).tier : 'Rookie'}</div>
-                </div>
-
-                {/* Row 2 */}
-                <div className="pt-1 border-t border-zinc-850/50">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Matches</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">⚔️ {profile?.total_matches_played || 0}</div>
-                </div>
-                <div className="pt-1 border-t border-zinc-850/50 border-l border-zinc-850">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Questions</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">📝 {profile?.total_questions_answered || 0}</div>
-                </div>
-                <div className="pt-1 border-t border-zinc-850/50 border-l border-zinc-850">
-                  <div className="text-[7px] text-zinc-500 uppercase tracking-wider">Accuracy</div>
-                  <div className="text-[10px] font-bold text-white mt-0.5 flex justify-center items-center gap-1">🎯 {winrate}%</div>
-                </div>
+            {/* Tab Toggles for Personal Profile (Swapped positions: Riwayat on Left, Season Aktif on Right) */}
+            {user && (
+              <div className="flex w-full gap-1 p-0.5 bg-zinc-950/60 border border-white/5 rounded-xl mt-3.5 shrink-0">
+                <button
+                  onClick={() => setPersonalTab('history')}
+                  className={`flex-1 py-1.5 rounded-lg text-[9px] font-extrabold tracking-widest uppercase transition-all border-0 focus:outline-none ${
+                    personalTab === 'history'
+                      ? 'bg-zinc-800 text-white shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  Riwayat Season
+                </button>
+                <button
+                  onClick={() => setPersonalTab('current')}
+                  className={`flex-1 py-1.5 rounded-lg text-[9px] font-extrabold tracking-widest uppercase transition-all border-0 focus:outline-none ${
+                    personalTab === 'current'
+                      ? 'bg-zinc-800 text-white shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  Season Aktif
+                </button>
               </div>
+            )}
+
+            {/* Stati            {/* Statistik Grid / Riwayat Season */}
+            {user ? (
+              personalTab === 'current' ? (
+                /* Statistik Grid (Compact 3x2, expanded to h-[120px]) */
+                <div className="grid grid-cols-3 gap-y-3 mt-3 text-center md:flex-1 md:min-h-[120px] h-[120px] shrink-0 items-center bg-zinc-950/20 border border-zinc-800/30 rounded-xl p-2.5">
+                  {/* Row 1 */}
+                  <div>
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Total XP</div>
+                    <div className="text-[13px] font-extrabold text-white mt-1">{profile?.rank_points || 0}</div>
+                  </div>
+                  <div className="border-l border-zinc-800/40">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Global</div>
+                    <div className="text-[13px] font-extrabold text-white mt-1">{profile?.global_rank ? `#${profile.global_rank}` : '#--'}</div>
+                  </div>
+                  <div className="border-l border-zinc-800/40">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Top</div>
+                    <div className="text-[12px] font-extrabold text-white mt-1 truncate">{profile ? getRankInfo(profile.highest_rank_points).tier : 'Rookie'}</div>
+                  </div>
+
+                  {/* Row 2 */}
+                  <div className="pt-2 border-t border-zinc-800/30">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Matches</div>
+                    <div className="text-[12px] font-extrabold text-white mt-1 flex justify-center items-center gap-1">⚔️ {profile?.total_matches_played || 0}</div>
+                  </div>
+                  <div className="pt-2 border-t border-zinc-800/30 border-l border-zinc-800/40">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Questions</div>
+                    <div className="text-[12px] font-extrabold text-white mt-1 flex justify-center items-center gap-1">📝 {profile?.total_questions_answered || 0}</div>
+                  </div>
+                  <div className="pt-2 border-t border-zinc-800/30 border-l border-zinc-800/40">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-bold">Accuracy</div>
+                    <div className="text-[12px] font-extrabold text-white mt-1 flex justify-center items-center gap-1">🎯 {winrate}%</div>
+                  </div>
+                </div>
+              ) : (
+                /* Previous Seasons History List (Scrollable, h-[120px]) */
+                <div className="w-full md:flex-1 md:min-h-[120px] h-[120px] overflow-y-auto custom-scrollbar pr-0.5 flex flex-col gap-2 mt-3 text-left">
+                  {personalHistory.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-3 bg-zinc-950/20 border border-zinc-800/30 rounded-xl">
+                      <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Riwayat Kosong</p>
+                      <p className="text-[8px] text-zinc-550 mt-1 leading-relaxed max-w-[160px]">
+                        Riwayat kompetisi Anda akan tercatat setelah season berganti.
+                      </p>
+                    </div>
+                  ) : (
+                    personalHistory.map((h) => {
+                      const monthNames = [
+                        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+                      ];
+                      let seasonLabel = h.season_id;
+                      if (h.season_id && h.season_id.includes('-')) {
+                        const [year, monthStr] = h.season_id.split('-');
+                        const monthIdx = parseInt(monthStr) - 1;
+                        if (monthIdx >= 0 && monthIdx < 12) {
+                          seasonLabel = `Season ${monthNames[monthIdx]} ${year}`;
+                        }
+                      }
+                      return (
+                        <div key={h.id || h.season_id} className="bg-zinc-950/40 border border-zinc-800/40 rounded-xl p-2 flex items-center justify-between text-[10px] shrink-0">
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-bold text-zinc-400 uppercase tracking-wide truncate">{seasonLabel}</div>
+                            <div className="font-extrabold text-indigo-400 mt-0.5 truncate">{h.tier}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="font-extrabold text-zinc-200">{h.rank_points} XP</div>
+                            <div className="text-[8px] text-zinc-500 mt-0.5">
+                              {h.total_matches} Match • {h.accuracy}% Acc
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )
             ) : (
-              <div className="mt-2.5 border-t border-zinc-850 pt-2 text-center">
+              <div className="mt-3 text-center md:flex-1 md:min-h-[120px] h-[120px] flex items-center justify-center shrink-0 border border-dashed border-zinc-800 rounded-xl">
                 <button
                   onClick={() => setShowAuthModal(true)}
                   className="text-[9px] font-bold text-zinc-400 hover:text-white transition-colors"
@@ -843,54 +1002,30 @@ export default function ArenaPage() {
             )}
           </div>
 
-          {/* Rank Poster Card */}
+          {/* Rank Poster Card (Redesigned to be ultra-compact horizontal dashboard) */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl p-3 shadow-2xl flex flex-col relative overflow-hidden shrink-0">
             <div className="flex items-center gap-2 mb-2">
               <Trophy className="text-indigo-400" size={14} />
               <h3 className="text-xs font-black text-white uppercase tracking-widest">Sistem Rank Atlas</h3>
             </div>
             
-            {/* Desktop View: Vertical List */}
-            <div className="hidden md:block divide-y divide-zinc-850 text-[11px]">
+            {/* Unified Horizontal Ranks Dashboard */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1.5 custom-scrollbar -mx-1 px-1">
               {RANKS.map((r) => (
                 <div 
                   key={r.tier} 
                   onClick={() => setSelectedRankForModal(r)}
-                  className="flex items-center justify-between py-2 px-2 hover:bg-zinc-850 rounded-lg cursor-pointer transition-colors"
+                  className="flex-1 flex flex-col items-center justify-center p-1.5 rounded-xl bg-zinc-950/40 border border-zinc-800/40 hover:bg-zinc-800 hover:border-zinc-700 cursor-pointer text-center shrink-0 transition-all text-[9px] min-w-[62px]"
                 >
-                  <div className="flex items-center gap-1.5 min-w-[90px]">
-                    <span className="text-sm">{getRankEmoji(r.tier)}</span>
-                    <span className="font-bold text-white text-[10px]">{r.tier}</span>
-                  </div>
-                  <span className="text-[9px] text-zinc-500 font-bold tracking-wider">
-                    {r.maxPoints === Infinity ? `${r.minPoints}+ XP` : `${r.minPoints}-${r.maxPoints}`}
-                  </span>
-                  <div className="flex items-center gap-1.5 font-bold text-[9px]">
-                    <span className="text-green-400">+{r.winPoints} W</span>
-                    <span className="text-zinc-700">|</span>
-                    <span className="text-red-400">{r.losePoints} L</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Mobile View: Horizontal Scroll (Ultra Minimalist) */}
-            <div className="md:hidden flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
-              {RANKS.map((r) => (
-                <div 
-                  key={r.tier} 
-                  onClick={() => setSelectedRankForModal(r)}
-                  className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-zinc-800/40 border border-zinc-800/60 hover:bg-zinc-850 cursor-pointer min-w-[75px] text-center shrink-0 transition-colors"
-                >
-                  <span className="text-xs">{getRankEmoji(r.tier)}</span>
-                  <span className="font-bold text-white text-[8px] leading-tight mt-0.5">{r.tier}</span>
-                  <span className="text-[7px] text-zinc-500 font-mono mt-0.5">
+                  <span className="text-sm leading-none">{getRankEmoji(r.tier)}</span>
+                  <span className="font-extrabold text-white text-[8px] leading-none mt-1.5">{r.tier}</span>
+                  <span className="text-[7px] text-zinc-550 font-mono mt-1 leading-none">
                     {r.maxPoints === Infinity ? `${r.minPoints}+` : `${r.minPoints}-${r.maxPoints}`}
                   </span>
-                  <div className="flex items-center gap-0.5 text-[7px] font-bold mt-0.5">
-                    <span className="text-green-400">+{r.winPoints}</span>
-                    <span className="text-zinc-700">/</span>
-                    <span className="text-red-400">{r.losePoints}</span>
+                  <div className="flex items-center gap-0.5 text-[6px] font-bold mt-1.5 text-zinc-500">
+                    <span className="text-green-500">+{r.winPoints}</span>
+                    <span className="text-zinc-650">/</span>
+                    <span className="text-red-500">-{Math.abs(r.losePoints)}</span>
                   </div>
                 </div>
               ))}
@@ -902,22 +1037,44 @@ export default function ArenaPage() {
           </div>
         </div>
 
-        {/* Kolom Kanan: Leaderboard Monokrom (Span 8 col) */}
-        <div className="md:col-span-8 flex flex-col h-[420px] md:h-full flex-1 md:min-h-0 md:overflow-hidden shrink-0 pb-20 md:pb-0 w-full">
-          {/* Kontainer Leaderboard */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl overflow-hidden flex flex-col flex-1 h-full min-h-0">
-            <Leaderboard />
-            
-            {/* Sticky Status Bawah */}
-            <div className="bg-zinc-950 border-t border-zinc-800 p-2 sm:p-3 text-center text-zinc-400 text-[10px] sm:text-xs font-medium mt-auto">
-              {user ? (
-                <>Posisi Anda: <span className="font-bold text-white">{profile?.global_rank ? `#${profile.global_rank}` : '#--'}</span> | Poin: <span className="font-bold text-white">{profile?.rank_points || 0}</span></>
-              ) : (
-                <>Login untuk melihat posisi Anda</>
-              )}
+        {/* Kolom Kanan: Dibagi 2 (Daftar Teman & Leaderboard) (Span 8 col) */}
+        <div className="md:col-span-8 grid grid-cols-1 md:grid-cols-8 gap-3 md:gap-4 h-auto md:h-full flex-1 md:min-h-0 md:overflow-hidden shrink-0 pb-20 md:pb-0 w-full">
+          {/* Bagian Kiri: Daftar Teman (Span 3 col di dalam kolom kanan) */}
+          <div id="friends-section" className="md:col-span-3 flex flex-col h-[400px] md:h-full min-h-0 scroll-mt-3">
+            {user ? (
+              <FriendsSidebar currentUserId={user.id} onlineUserIds={onlineUserIds} activeBattleRoom={activeBattleRoom} />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl p-4 text-center">
+                <Users className="text-zinc-700 mb-3" size={32} />
+                <p className="text-xs text-zinc-500 mb-4">Login untuk mengakses pertemanan</p>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-xs font-bold transition-colors"
+                >
+                  Login Sekarang
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Bagian Kanan: Leaderboard (Span 5 col di dalam kolom kanan) */}
+          <div id="leaderboard-section" className="md:col-span-5 flex flex-col h-[420px] md:h-full min-h-0 scroll-mt-3">
+            {/* Kontainer Leaderboard */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl sm:rounded-2xl overflow-hidden flex flex-col flex-1 h-full min-h-0">
+              <Leaderboard />
+              
+              {/* Sticky Status Bawah */}
+              <div className="bg-zinc-950 border-t border-zinc-800 p-2 sm:p-3 text-center text-zinc-400 text-[10px] sm:text-xs font-medium mt-auto">
+                {user ? (
+                  <>Posisi Anda: <span className="font-bold text-white">{profile?.global_rank ? `#${profile.global_rank}` : '#--'}</span> | XP: <span className="font-bold text-white">{profile?.rank_points || 0}</span></>
+                ) : (
+                  <>Login untuk melihat posisi Anda</>
+                )}
+              </div>
             </div>
           </div>
         </div>
+        
 
       </div>
 
@@ -954,54 +1111,20 @@ export default function ArenaPage() {
 
       {/* Modal Detail User Pencarian */}
       {selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl max-w-xs w-full text-center shadow-2xl relative overflow-hidden flex flex-col items-center">
-            
-            <button
-              onClick={() => setSelectedUser(null)}
-              className="absolute top-3 right-3 text-zinc-500 hover:text-white text-[10px] font-bold uppercase tracking-widest"
-            >
-              Tutup
-            </button>
-
-            <div className="w-14 h-14 rounded-full border-2 border-zinc-700 bg-zinc-800 flex items-center justify-center text-xl overflow-hidden shrink-0 shadow-inner mb-2.5 mt-2">
-              {selectedUser.avatar_url ? (
-                <img src={selectedUser.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <span>{getRankEmoji(getRankInfo(selectedUser.rank_points || 0).tier)}</span>
-              )}
-            </div>
-
-            <h3 className="text-sm font-bold text-white">{selectedUser.username}</h3>
-            
-            <div className="inline-block bg-zinc-850 text-zinc-300 px-3 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase mt-1">
-              {getRankInfo(selectedUser.rank_points || 0).tier}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mt-4 border-t border-zinc-800 pt-4 w-full">
-              <div className="text-center">
-                <div className="text-[8px] text-zinc-500 uppercase tracking-widest">Total XP</div>
-                <div className="text-xs font-bold text-white mt-0.5">{selectedUser.rank_points || 0}</div>
-              </div>
-              <div className="text-center border-l border-zinc-800">
-                <div className="text-[8px] text-zinc-500 uppercase tracking-widest">Best Rank</div>
-                <div className="text-xs font-bold text-white mt-0.5 truncate">
-                  {getRankInfo(selectedUser.highest_rank_points || 0).tier}
-                </div>
-              </div>
-            </div>
-
+        <UserProfileModal
+          userId={selectedUser.id}
+          onClose={() => setSelectedUser(null)}
+          actionButton={
             <button
               onClick={handleInviteUser}
               disabled={isInviting || !user}
-              className="w-full mt-5 bg-white hover:bg-zinc-200 text-zinc-950 rounded-xl py-3 text-xs font-black uppercase tracking-wider transition-colors shadow-lg flex items-center justify-center gap-2"
+              className="w-full bg-white hover:bg-zinc-200 text-zinc-950 rounded-xl py-3 text-xs font-black uppercase tracking-wider transition-colors shadow-lg flex items-center justify-center gap-2"
             >
-              {isInviting && <div className="animate-spin w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full" />}
+              {isInviting && <Loader2 size={14} className="animate-spin text-zinc-950" />}
               {user ? 'Tantang Battle' : 'Login untuk Tantang'}
             </button>
-
-          </div>
-        </div>
+          }
+        />
       )}
 
       {/* Auth Modal */}
@@ -1245,7 +1368,7 @@ export default function ArenaPage() {
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[80vh] text-zinc-100">
             {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-850">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
               <div className="flex items-center gap-2.5">
                 <span className="text-xl">{getRankEmoji(selectedRankForModal.tier)}</span>
                 <div>
@@ -1279,7 +1402,11 @@ export default function ArenaPage() {
               ) : (
                 <div className="space-y-3">
                   {playersOfSelectedRank.map((player) => (
-                    <div key={player.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-850">
+                    <div 
+                      key={player.id} 
+                      onClick={() => setSelectedProfileId(player.id)}
+                      className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 cursor-pointer hover:border-zinc-700 hover:scale-[0.99] active:scale-[0.98] transition-all"
+                    >
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden shrink-0 border border-zinc-700">
                           {player.avatar_url ? (
@@ -1306,7 +1433,7 @@ export default function ArenaPage() {
             </div>
 
             {/* Footer */}
-            <div className="pt-4 border-t border-zinc-850 flex justify-end">
+            <div className="pt-4 border-t border-zinc-800 flex justify-end">
               <button
                 onClick={() => setSelectedRankForModal(null)}
                 className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors"
@@ -1316,6 +1443,13 @@ export default function ArenaPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* General User Profile Modal */}
+      {selectedProfileId && (
+        <UserProfileModal
+          userId={selectedProfileId}
+          onClose={() => setSelectedProfileId(null)}
+        />
       )}
     </div>
   );

@@ -711,7 +711,7 @@ export default function EnglishTutorChat({ username }: EnglishTutorChatProps = {
           setIsOpen(!isOpen);
           setIsMinimized(false);
         }}
-        className={`fixed z-[9999] right-4 bottom-4 md:right-6 md:bottom-6 h-10 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 ${isOpen
+        className={`fixed z-20 right-4 bottom-4 md:right-6 md:bottom-6 h-10 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 ${isOpen
             ? 'bg-slate-700 hover:bg-slate-800 rotate-0 w-10 sm:w-14 hidden md:flex'
             : 'bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 px-3 sm:px-5 gap-1.5 sm:gap-2 flex'
           }`}

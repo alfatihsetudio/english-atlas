@@ -117,7 +117,7 @@ export default function QuizBoard({ questions, sessionId, mode, currentPoints, o
       {/* Header Info (Sticky) */}
       <div className="sticky top-4 z-30 mb-8 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 rounded-3xl p-5 shadow-2xl flex items-center justify-between">
         {onBack ? (
-          <button onClick={onBack} className="p-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 rounded-xl transition-colors shrink-0 text-zinc-300">
+          <button onClick={onBack} className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-colors shrink-0 text-zinc-300">
             <ArrowLeft size={16} />
           </button>
         ) : (

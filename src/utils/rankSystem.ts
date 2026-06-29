@@ -45,18 +45,3 @@ export function calculateNewPoints(currentPoints: number, isCorrect: boolean): n
   return Math.max(0, newPoints);
 }
 
-export function calculateBattlePoints(currentPoints: number, isWinner: boolean, isDraw: boolean = false): number {
-  const rankInfo = getRankInfo(currentPoints);
-  
-  if (isDraw) {
-    // Jika seri, berikan sedikit poin hiburan atau 0
-    return Math.max(0, currentPoints + 2);
-  }
-  
-  // Di Battle Mode, taruhannya lebih tinggi. Menang dapat 2x lipat, kalah juga bisa minus lebih banyak.
-  const pointsChange = isWinner ? (rankInfo.winPoints * 2) : (rankInfo.losePoints * 2);
-  const newPoints = currentPoints + pointsChange;
-  
-  // Poin tidak boleh turun di bawah 0
-  return Math.max(0, newPoints);
-}

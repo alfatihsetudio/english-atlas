@@ -105,7 +105,8 @@ Gaya Kalimat: ${aiPrompt}
 
 Instruksi Konteks:
 - Wajib membuat konteks/topik kalimat HANYA seputar: **${randomTopic}**
-- Pastikan kalimat yang dibuat SANGAT BERVARIASI dan TIDAK SAMA dengan soal-soal sebelumnya. Gunakan kosakata yang kaya terkait topik tersebut.
+- Pastikan kalimat yang dibuat SANGAT BERVARIASI dan menggunakan kosakata yang kaya terkait topik.
+- ACAK POLA SOAL: Pilihan sub-materi grammar dari Fokus Area WAJIB DIACAK URUTANNYA. Jangan gunakan pola yang bisa ditebak (misal soal 1 pasti tenses, soal 2 pasti preposisi). Setiap soal harus menguji aspek yang berbeda dalam urutan yang sangat acak.
 
 ATURAN MUTLAK SISTEM (WAJIB DIPATUHI):
 1. KEAKURATAN TATA BAHASA MUTLAK (ZERO ERRORS):

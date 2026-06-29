@@ -124,7 +124,7 @@ export default function DictionarySearch() {
   return (
     <>
       {/* Floating Dictionary Search Bar — bottom left, leaves room for chatbot button */}
-      <div className="fixed z-50 bottom-4 left-4 md:left-1/2 md:transform md:-translate-x-1/2 pointer-events-none">
+      <div className="fixed z-20 bottom-4 left-4 md:left-1/2 md:transform md:-translate-x-1/2 pointer-events-none">
         <form
           onSubmit={handleSearch}
           className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200 rounded-full shadow-lg px-3.5 h-10 pointer-events-auto"
